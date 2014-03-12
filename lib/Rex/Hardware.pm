@@ -64,11 +64,11 @@ Available modules:
 
 =item Swap
 
+=item VirtInfo
+
 =back
 
 =cut
-
-our %hw_info = ();
 
 my %HW_PROVIDER;
 sub register_hardware_provider {
@@ -84,56 +84,36 @@ sub get {
 
    if("all" eq "\L$modules[0]") {
 
-      @modules = qw(Host Kernel Memory Network Swap);
+      @modules = qw(Host Kernel Memory Network Swap VirtInfo);
       push(@modules, keys(%HW_PROVIDER));
    
    }
 
    for my $mod_string (@modules) {
 
-      if(exists $hw_info{$mod_string} && Rex::Args->is_opt("c")) {
-         $hardware_information{$mod_string} = $hw_info{$mod_string};
+      Rex::Commands::profiler()->start("hardware: $mod_string");
+
+      my $mod = "Rex::Hardware::$mod_string";
+      if(exists $HW_PROVIDER{$mod_string}) {
+         $mod = $HW_PROVIDER{$mod_string};
       }
 
-      else {
+      Rex::Logger::debug("Loading $mod");
+      eval "use $mod";
 
-         my $mod = "Rex::Hardware::$mod_string";
-         if(exists $HW_PROVIDER{$mod_string}) {
-            $mod = $HW_PROVIDER{$mod_string};
-         }
-
-         Rex::Logger::debug("Loading $mod");
-         eval "use $mod";
-
-         if($@) {
-            Rex::Logger::info("$mod not found.");
-            Rex::Logger::debug("$@");
-            next;
-         }
-
-         $hardware_information{$mod_string} = $mod->get();
-
-         if(Rex::Args->is_opt("c")) {
-            $hw_info{$mod_string} = $hardware_information{$mod_string};
-         }
-
+      if($@) {
+         Rex::Logger::info("$mod not found.");
+         Rex::Logger::debug("$@");
+         next;
       }
+
+      $hardware_information{$mod_string} = $mod->get();
+
+      Rex::Commands::profiler()->end("hardware: $mod_string");
 
    }
 
    return %hardware_information;
-}
-
-sub reset {
-   my ($class) = @_;
-   %hw_info = ();
-}
-
-sub cache {
-   my ($class, $mod) = @_;
-   if(exists $hw_info{$mod}) {
-      return $hw_info{$mod};
-   }
 }
 
 =back

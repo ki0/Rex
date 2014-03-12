@@ -14,6 +14,8 @@ With this module you can manage user and groups.
 
 =head1 SYNOPSIS
 
+ use Rex::Commands::User;
+    
  task "create-user", "remoteserver", sub {
     create_user "root",
        uid => 0,
@@ -44,6 +46,7 @@ use Rex::Commands::Fs;
 use Rex::Commands::File;
 use Rex::Logger;
 use Rex::User;
+use Rex::Hook;
 
 use vars qw(@EXPORT);
 use base qw(Rex::Exporter);
@@ -60,6 +63,18 @@ Create or update a user.
 
 sub create_user {
    my ($user, @_data) = @_;
+
+   #### check and run before hook
+   eval {
+      my @new_args = Rex::Hook::run_hook(create_user => "before", @_);
+      if(@new_args) {
+         ($user, @_data) = @new_args;
+      }
+      1;
+   } or do {
+      die("Before-Hook failed. Canceling create_user() action: $@");
+   };
+   ##############################
 
    my $data = {};
 
@@ -113,6 +128,10 @@ sub create_user {
 
    }
 
+   #### check and run before hook
+   Rex::Hook::run_hook(create_user => "after", @_, $uid);
+   ##############################
+
    return $uid;
 }
 
@@ -146,9 +165,15 @@ sub user_groups {
    Rex::User->get()->user_groups(@_);
 }
 
-=item list_user()
+=item user_list()
 
-Returns user list via getent passwd
+Returns user list via getent passwd.
+
+ task "list_user", "server01", sub {
+    for my $user (user_list) {
+       print "name: $user / uid: " . get_uid($user) . "\n";
+    }
+ };
 
 =cut
 
@@ -195,7 +220,17 @@ Create or update a group.
 =cut
 
 sub create_group {
-   Rex::User->get()->create_group(@_);
+   my $group = shift;
+   my @params;
+
+   if(! ref $_[0]) {
+      push @params, { @_ };
+   }
+   else {
+      push @params, @_;
+   }
+
+   Rex::User->get()->create_group($group, @params);
 }
 
 =item get_gid($group)

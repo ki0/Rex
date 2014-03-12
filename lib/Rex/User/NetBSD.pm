@@ -11,12 +11,13 @@ use warnings;
 
 use Rex::Logger;
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 use Rex::Commands::Fs;
 use Rex::User::Linux;
 use Rex::Interface::File;
 use Rex::Interface::Fs;
 use Rex::Interface::Exec;
-
+use Rex::Helper::Path;
 
 use base qw(Rex::User::Linux);
 
@@ -93,13 +94,13 @@ sub create_user {
       }
    }
  
-   my $rnd_file = "/tmp/" . Rex::Commands::get_random(8, 'a' .. 'z') . ".u.tmp";
+   my $rnd_file = get_tmp_file;
    my $fh = Rex::Interface::File->create;
    $fh->open(">", $rnd_file);
    $fh->write("$cmd $user\nexit \$?\n");
    $fh->close;
 
-   run "/bin/sh $rnd_file";
+   i_run "/bin/sh $rnd_file";
    if($? == 0) {
       Rex::Logger::debug("User $user created/updated.");
    }
@@ -113,13 +114,13 @@ sub create_user {
    if(exists $data->{password}) {
       Rex::Logger::debug("Changing password of $user.");
 
-      $rnd_file = "/tmp/" . Rex::Commands::get_random(8, 'a' .. 'z') . ".u.tmp";
+      $rnd_file = get_tmp_file;
       $fh = Rex::Interface::File->create;
       $fh->open(">", $rnd_file);
       $fh->write("usermod -p \$(pwhash '" . $data->{password} . "') $user\nexit \$?\n");
       $fh->close;
 
-      run "/bin/sh $rnd_file";
+      i_run "/bin/sh $rnd_file";
       if($? != 0) {
          die("Error setting password for $user");
       }
@@ -130,13 +131,13 @@ sub create_user {
    if(exists $data->{crypt_password}) {
       Rex::Logger::debug("Setting encrypted password of $user");
 
-      $rnd_file = "/tmp/" . Rex::Commands::get_random(8, 'a' .. 'z') . ".u.tmp";
+      $rnd_file = get_tmp_file;
       $fh = Rex::Interface::File->create;
       $fh->open(">", $rnd_file);
       $fh->write("usermod -p '" . $data->{crypt_password} . "' $user\nexit \$?\n");
       $fh->close;
 
-      run "/bin/sh $rnd_file";
+      i_run "/bin/sh $rnd_file";
       if($? != 0) {
          die("Error setting password for $user");
       }
@@ -161,7 +162,7 @@ sub rm_user {
       $cmd .= " -r";
    }
 
-   run $cmd . " " . $user;
+   i_run $cmd . " " . $user;
 
    if(exists $data->{delete_home} && is_dir($user_info{home})) {
       Rex::Logger::debug("userdel doesn't deleted home. removing it now by hand...");

@@ -8,6 +8,7 @@ package Rex::Pkg::Base;
 
 use strict;
 use warnings;
+use Rex::Interface::Exec;
 
 sub new {
    my $that = shift;
@@ -25,6 +26,17 @@ sub is_installed {
 
 sub install {
    Rex::Logger::info("Installing package not supported on this platform", "warn");
+}
+
+sub bulk_install {
+   Rex::Logger::info("Installing bulk packages not supported on this platform. Falling back to one by one method", "warn");
+
+   my ($self, $packages_aref, $option) = @_;
+   for my $pkg_to_install (@{$packages_aref}) {
+      $self->install($pkg_to_install, $option);
+   }
+   
+   return 1;
 }
 
 sub update {
@@ -55,5 +67,9 @@ sub rm_repository {
    Rex::Logger::info("Removing repositories not supported on this platform", "warn");
 }
 
-
+sub _exec {
+   my ($self, $cmd) = @_;
+   my $exec = Rex::Interface::Exec->create;
+   $exec->exec($cmd);
+}
 1;

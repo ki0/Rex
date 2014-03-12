@@ -33,7 +33,7 @@ package Rex::Logger;
 use strict;
 use warnings;
 
-use Rex;
+#use Rex;
 
 our $no_color = 0;
 eval "use Term::ANSIColor";
@@ -91,6 +91,7 @@ sub init {
    return if $silent;
    eval {
       die if(Rex::Config->get_log_filename || ! Rex::Config->get_log_facility);
+
       require Sys::Syslog;
       Sys::Syslog->import;
       openlog("rex", "ndelay,pid", Rex::Config->get_log_facility);
@@ -129,7 +130,8 @@ sub info {
    if($has_syslog) {
       syslog("info", $msg);
    }
-   elsif(Rex::Config->get_log_filename()) {
+
+   if(Rex::Config->get_log_filename()) {
       open($log_fh, ">>", Rex::Config->get_log_filename()) or die($!);
       flock($log_fh, 2);
       print {$log_fh} "$msg\n" if($log_fh);
@@ -137,10 +139,10 @@ sub info {
    }
 
    if($no_color) {
-      print STDERR "$msg\n" unless($::QUIET);
+      print STDERR "$msg\n" if( ((defined $::QUIET && $::QUIET == 2) && (defined $type && $type ne 'info')) || ! defined $::QUIET);
    }
    else {
-      print STDERR colored([$color], "$msg\n") unless($::QUIET);
+      print STDERR colored([$color], "$msg\n") if( ((defined $::QUIET && $::QUIET == 2) && (defined $type && $type ne 'info')) || ! defined $::QUIET);
    }
 
    # workaround for windows Sys::Syslog behaviour on forks
@@ -167,7 +169,8 @@ sub debug {
    if($has_syslog) {
       syslog("debug", $msg);
    }
-   elsif(Rex::Config->get_log_filename()) {
+
+   if(Rex::Config->get_log_filename()) {
       open($log_fh, ">>", Rex::Config->get_log_filename()) or die($!);
       flock($log_fh, 2);
       print {$log_fh} "$msg\n" if($log_fh);

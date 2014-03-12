@@ -34,21 +34,16 @@ sub checkout {
       unless($? == 0) {
          Rex::Logger::info("Error cloning repository.", "warn");
          Rex::Logger::info($out);
-         exit 1;
+         die("Error cloning repository.");
       }
 
       Rex::Logger::debug($out);
 
       if(exists $checkout_opt->{"branch"}) {
-         my $cwd = getcwd;
-
          unless($checkout_to) {
             $checkout_to = [ split(/\//, $repo_info->{"url"}) ]->[-1];
             $checkout_to =~ s/\.git$//;
          }
-
-         Rex::Logger::debug("chdir: $checkout_to");
-         chdir($checkout_to);
 
          my $checkout_cmd = sprintf($CHECKOUT_COMMAND, $checkout_opt->{"branch"}, $checkout_opt->{"branch"});
          Rex::Logger::debug("checkout_cmd: $checkout_cmd");
@@ -56,21 +51,17 @@ sub checkout {
          Rex::Logger::info("switching to branch " . $checkout_opt->{"branch"});
 
 
-         $out = run "$checkout_cmd";
+         $out = run "$checkout_cmd", cwd => $checkout_to;
          Rex::Logger::debug($out);
-
-         Rex::Logger::debug("chdir: $cwd");
-         chdir($cwd);
       }
    }
    elsif(is_dir("$checkout_to/.git")) {
-      chdir "$checkout_to";
       my $branch = $checkout_opt->{"branch"} || "master";
-      run "git pull origin $branch";
+      run "git pull origin $branch", cwd => $checkout_to;
    }
    else {
       Rex::Logger::info("Error checking out repository.", "warn");
-      exit 1;
+      die("Error checking out repository.");
    }
 }
 

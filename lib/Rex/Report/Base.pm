@@ -9,7 +9,9 @@ package Rex::Report::Base;
 use strict;
 use warnings;
 
+use Data::Dumper;
 use Rex::Logger;
+use Time::HiRes qw(time);
 
 sub new {
    my $that = shift;
@@ -23,9 +25,11 @@ sub new {
 
 sub report {
    my ($self, $msg) = @_;
-   Rex::Logger::info($msg);
-
-   return length($msg);
+   return 1;
 }
+
+sub register_reporting_hooks {}
+sub write_report {}
+
 
 1;

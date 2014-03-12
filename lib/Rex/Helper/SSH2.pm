@@ -11,49 +11,60 @@ use warnings;
 
 require Exporter;
 use Data::Dumper;
+require Rex::Commands;
 
 use base qw(Exporter);
 
 use vars qw(@EXPORT);
 @EXPORT = qw(net_ssh2_exec net_ssh2_exec_output net_ssh2_shell_exec);
 
-our $READ_STDERR = 0;
-our $REQUIRE_TTY = 1;
+our $READ_STDERR = 1;
+our $EXEC_AND_SLEEP = 0;
 
 sub net_ssh2_exec {
    my ($ssh, $cmd, $callback) = @_;
 
    my $chan = $ssh->channel;
-   if($REQUIRE_TTY) {
-      $chan->pty("vt100");
+
+   # REQUIRE_TTY can be turned off by feature no_tty
+   if(! Rex::Config->get_no_tty) {
+      $chan->pty("xterm");    # set to xterm, due to problems with vt100.
+                              # if vt100 sometimes the restart of services doesn't work and need a sleep .000001 after the command...
+                              # strange bug...
+      $chan->pty_size(4000, 80);
    }
    $chan->blocking(1);
 
    $chan->exec($cmd);
 
    my $in;
-   my $in_err;
-   while(1) {
-      my $buf;
-      my $buf_err="";
-      $chan->read($buf, 20);
-      # due to problem on some systems reading stderr, removed until i've found a solution
-      if($READ_STDERR) {
-         $chan->read($buf_err, 500, 1);
-      }
-      $in .= $buf;
-      $in_err .= $buf_err;
+   my $in_err = "";
 
-      last unless $buf;
+   my $rex_int_conf = Rex::Commands::get("rex_internals") || {};
+   my $buffer_size = 20;
+   if(exists $rex_int_conf->{read_buffer_size}) {
+      $buffer_size = $rex_int_conf->{read_buffer_size};
+   }
+
+   while ( my $len = $chan->read(my $buf, $buffer_size) ) {
+		$in .= $buf;
+
+      if($callback) {
+         &$callback($buf);
+      } 
+   }
+
+   while ( my $len = $chan->read(my $buf_err, $buffer_size, 1) ) {
+	    $in_err .= $buf_err;
    }
 
    $chan->close;
    $? = $chan->exit_status;
 
    # if used with $chan->pty() we have to remove \r
-   if($REQUIRE_TTY) {
-      $in =~ s/\r//g;
-      $in_err =~ s/\r//g;
+   if(! Rex::Config->get_no_tty) {
+      $in =~ s/\r//g if $in;
+      $in_err =~ s/\r//g if $in_err;
    }
 
    if(wantarray) {

@@ -32,17 +32,183 @@ use Data::Dumper;
 
 our ($user, $password, $port,
             $timeout, $max_connect_fails,
-            $password_auth, $key_auth, $public_key, $private_key, $parallelism, $log_filename, $log_facility, $sudo_password,
+            $password_auth, $key_auth, $krb5_auth, $public_key, $private_key, $parallelism, $log_filename, $log_facility, $sudo_password,
             $ca_file, $ca_cert, $ca_key,
-            $path,
+            $path, $no_path_cleanup,
             $set_param,
             $environment,
             $connection_type,
             $distributor,
             $template_function,
             $SET_HANDLER, $HOME_CONFIG, $HOME_CONFIG_YAML,
-            %SSH_CONFIG_FOR);
+            %SSH_CONFIG_FOR,
+            $sudo_without_locales,
+            $sudo_without_sh,
+            $no_tty,
+            $source_global_profile, $source_profile,
+            %executor_for,
+            $allow_empty_groups,
+            $use_server_auth,
+            $tmp_dir,
+            %openssh_opt,
+            $use_cache, $cache_type,
+            $use_sleep_hack,
+            $report_type,
+            $do_reporting,
+            $say_format,
+            $exec_autodie);
 
+# some defaults
+%executor_for = (
+   perl   => "perl",
+   python => "python",
+   ruby   => "ruby",
+   bash   => "bash",
+);
+
+sub set_exec_autodie {
+   my $class = shift;
+   $exec_autodie = shift;
+}
+
+sub get_exec_autodie {
+   return $exec_autodie;
+}
+sub set_no_path_cleanup {
+   my $class = shift;
+   $no_path_cleanup = shift;
+}
+
+sub get_no_path_cleanup {
+   return $no_path_cleanup;
+}
+
+sub set_source_profile {
+   my $class = shift;
+   $source_profile = shift;
+}
+
+sub get_source_profile {
+   return $source_profile;
+}
+
+sub set_say_format {
+   my $class = shift;
+   $say_format = shift;
+}
+
+sub get_say_format {
+   return $say_format;
+}
+
+sub set_do_reporting {
+   my $class = shift;
+   $do_reporting = shift;
+}
+
+sub get_do_reporting {
+   return $do_reporting;
+}
+
+sub set_report_type {
+   my $class = shift;
+   $report_type = shift;
+}
+
+sub get_report_type {
+   if(exists $ENV{REX_REPORT_TYPE}) {
+      return $ENV{REX_REPORT_TYPE};
+   }
+
+   return $report_type;
+}
+
+sub set_sleep_hack {
+   my $class = shift;
+   $use_sleep_hack = shift;
+}
+
+sub get_sleep_hack {
+   return $use_sleep_hack;
+}
+
+sub set_cache_type {
+   my $class = shift;
+   $cache_type = shift;
+}
+
+sub get_cache_type {
+   if(exists $ENV{REX_CACHE_TYPE}) {
+      return $ENV{REX_CACHE_TYPE};
+   }
+
+   return $cache_type || "Base";
+}
+
+sub set_use_cache {
+   my $class = shift;
+   $use_cache = shift;
+}
+
+sub get_use_cache {
+   return $use_cache;
+}
+
+sub get_sudo_without_locales {
+   return $sudo_without_locales;
+}
+
+sub get_sudo_without_sh {
+   return $sudo_without_sh;
+}
+
+sub set_openssh_opt {
+   my ($class, $key, $val) = @_;
+   if(! defined $val) {
+      $openssh_opt{$key} = undef;
+      delete $openssh_opt{$key};
+      return;
+   }
+
+   $openssh_opt{$key} = $val;
+}
+
+sub get_openssh_opt {
+   return %openssh_opt;
+}
+
+sub set_sudo_without_locales {
+   my $class = shift;
+   $sudo_without_locales = shift;
+}
+
+sub set_sudo_without_sh {
+   my $class = shift;
+   $sudo_without_sh = shift;
+}
+
+sub set_executor_for {
+   my $class = shift;
+   my $for   = shift;
+   my $e     = shift;
+
+   $executor_for{$for} = $e;
+}
+
+sub get_executor_for {
+   my $class = shift;
+   my $e     = shift;
+
+   return $executor_for{$e};
+}
+
+sub set_tmp_dir {
+   $tmp_dir = shift;
+}
+
+sub get_tmp_dir {
+   return $tmp_dir || "/tmp";
+}
 
 sub set_path {
    my $class = shift;
@@ -74,6 +240,15 @@ sub set_port {
 sub set_sudo_password {
    my $class = shift;
    $sudo_password = shift;
+}
+
+sub set_source_global_profile {
+   my $class = shift;
+   $source_global_profile = shift;
+}
+
+sub get_source_global_profile {
+   return $source_global_profile;
 }
 
 sub set_max_connect_fails {
@@ -126,7 +301,17 @@ sub get_port {
 
 sub get_sudo_password {
    my $class = shift;
-   return $sudo_password || $password || "";
+   if($sudo_password) {
+      return $sudo_password;
+   }
+   elsif(! defined $sudo_password) {
+      return "";
+   }
+   else {
+      return $password;
+   }
+
+   return "";
 }
 
 sub set_timeout {
@@ -149,13 +334,22 @@ sub get_timeout {
 sub set_password_auth {
    my $class = shift;
    $key_auth = 0;
+   $krb5_auth = 0;
    $password_auth = shift || 1;
 }
 
 sub set_key_auth {
    my $class = shift;
    $password_auth = 0;
+   $krb5_auth = 0;
    $key_auth = shift || 1;
+}
+
+sub set_krb5_auth {
+   my $class = shift;
+   $password_auth = 0;
+   $key_auth = 0;
+   $krb5_auth = shift || 1;
 }
 
 sub get_password_auth {
@@ -164,6 +358,10 @@ sub get_password_auth {
 
 sub get_key_auth {
    return $key_auth;
+}
+
+sub get_krb5_auth {
+   return $krb5_auth;
 }
 
 sub set_public_key {
@@ -227,7 +425,7 @@ sub set_log_facility {
 
 sub get_log_facility {
    my $class = shift;
-   return $log_facility;
+   return $log_facility || "local0";
 }
 
 sub set_environment {
@@ -344,6 +542,15 @@ sub get_template_function {
    };
 }
 
+sub set_no_tty {
+   shift;
+   $no_tty = shift;
+}
+
+sub get_no_tty {
+   return $no_tty;
+}
+
 =item register_set_handler($handler_name, $code)
 
 Register a handler that gets called by I<set>.
@@ -372,6 +579,9 @@ sub set {
    }
 
    if(ref($data) eq "HASH") {
+      if(! ref($set_param->{$var})) {
+         $set_param->{$var} = {};
+      }
       for my $key (keys %{$data}) {
          $set_param->{$var}->{$key} = $data->{$key};
       }
@@ -463,34 +673,83 @@ sub read_ssh_config_file {
    $config_file ||= _home_dir() . '/.ssh/config';
    
    if(-f $config_file) {
-      my (@host, $in_host);
-      if(open(my $fh, '<', $config_file)) {
-         while(my $line = <$fh>) {
-            chomp $line;
-            next if ($line =~ m/^#/);
-            next if ($line =~ m/^\s*$/);
-
-            if($line =~ m/^Host\s+=?\s*(.*)$/) {
-               my $host_tmp = $1; 
-               @host = split(/\s+/, $host_tmp);
-               $in_host = 1;
-               for my $h (@host) {
-                  $SSH_CONFIG_FOR{$h} = {}; 
-               }
-               next;
-            }   
-            elsif($in_host) {
-               my ($key, $val) = ($line =~ m/^\s*([^\s]+)\s+=?\s*(.*)$/);
-               $val =~ s/^\s+//;
-               $val =~ s/\s+$//;
-               for my $h (@host) {
-                  $SSH_CONFIG_FOR{$h}->{lc($key)} = $val;
-               }
-            }   
-         }
-         close($fh);
-      }
+      my @lines = eval { local(@ARGV) = ($config_file); <>;  };
+      %SSH_CONFIG_FOR = _parse_ssh_config(@lines);
    }
+}
+
+sub _parse_ssh_config {
+   my (@lines) = @_;
+
+   my %ret = ();
+
+   my (@host, $in_host);
+   for my $line (@lines) {
+      chomp $line;
+      next if ($line =~ m/^\s*#/);
+      next if ($line =~ m/^\s*$/);
+
+      if($line =~ m/^Host(?:\s*=\s*|\s+)(.*)$/i) {
+         my $host_tmp = $1; 
+         @host = split(/\s+/, $host_tmp);
+         $in_host = 1;
+         for my $h (@host) {
+            $ret{$h} = {}; 
+         }
+         next;
+      }   
+      elsif($in_host) {
+         #my ($key, $val) = ($line =~ m/^\s*([^\s]+)\s+=?\s*(.*)$/);
+         $line =~ s/^\s*//g;
+         my ($key, $val_tmp) = split(/[\s=]/, $line, 2);
+         $val_tmp =~ s/^[\s=]+//g;
+         my $val = $val_tmp;
+
+         $val =~ s/^\s+//;
+         $val =~ s/\s+$//;
+         for my $h (@host) {
+            $ret{$h}->{lc($key)} = $val;
+         }
+      }   
+   }
+
+   return %ret;
+}
+
+sub set_allow_empty_groups {
+   my ($class, $set) = @_;
+   if($set) {
+      $allow_empty_groups = 1;
+   }
+   else {
+      $allow_empty_groups = 0;
+   }
+}
+
+sub get_allow_empty_groups {
+   if($allow_empty_groups) {
+      return 1;
+   }
+
+   return 0;
+}
+
+sub set_use_server_auth {
+   my ($class, $set) = @_;
+   if($set) {
+      $use_server_auth = 1;
+   }
+   else {
+      $use_server_auth = 0;
+   }
+}
+
+sub get_use_server_auth {
+   if($use_server_auth) {
+      return 1;
+   }
+
+   return 0;
 }
 
 sub import {

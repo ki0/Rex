@@ -1,7 +1,8 @@
-use Test::More tests => 139;
+use Test::More tests => 153;
 
 use_ok 'Rex::Batch';
-use_ok 'Rex::Cache';
+use_ok 'Rex::Interface::Cache';
+use_ok 'Rex::Interface::Cache::Base';
 use_ok 'Rex::CLI';
 use_ok 'Rex::Commands::Box';
 use_ok 'Rex::Commands::Cloud';
@@ -28,6 +29,7 @@ use_ok 'Rex::Commands::Sysctl';
 use_ok 'Rex::Commands::Tail';
 use_ok 'Rex::Commands::Upload';
 use_ok 'Rex::Commands::User';
+use_ok 'Rex::Commands::Sync';
 use_ok 'Rex::Commands';
 use_ok 'Rex::Config';
 use_ok 'Rex::Exporter';
@@ -94,7 +96,6 @@ use_ok 'Rex::Pkg::Mageia';
 use_ok 'Rex::Pkg::NetBSD';
 use_ok 'Rex::Pkg::OpenBSD';
 use_ok 'Rex::Pkg::Redhat';
-use_ok 'Rex::Pkg::SunOS::Blastwave';
 use_ok 'Rex::Pkg::SunOS::OpenCSW';
 use_ok 'Rex::Pkg::SunOS::pkg';
 use_ok 'Rex::Pkg::SunOS';
@@ -106,12 +107,15 @@ use_ok 'Rex::Report::Base';
 use_ok 'Rex::Report';
 use_ok 'Rex::SCM::Git';
 use_ok 'Rex::SCM::Subversion';
+use_ok 'Rex::Service::Redhat::systemd';
+use_ok 'Rex::Service::Gentoo::systemd';
 use_ok 'Rex::Service::ALT::systemd';
 use_ok 'Rex::Service::ALT';
 use_ok 'Rex::Service::Debian';
 use_ok 'Rex::Service::FreeBSD';
 use_ok 'Rex::Service::Gentoo';
 use_ok 'Rex::Service::Mageia';
+use_ok 'Rex::Service::Mageia::systemd';
 use_ok 'Rex::Service::NetBSD';
 use_ok 'Rex::Service::OpenBSD';
 use_ok 'Rex::Service::Redhat::systemd';
@@ -137,5 +141,22 @@ use_ok 'Rex::User::Linux';
 use_ok 'Rex::User::NetBSD';
 use_ok 'Rex::User::OpenBSD';
 use_ok 'Rex::User::SunOS';
+use_ok 'Rex::User::OpenWrt';
 use_ok 'Rex::User';
+use_ok 'Rex::Interface::Shell';
+use_ok 'Rex::Interface::Shell::Csh';
+use_ok 'Rex::Interface::Shell::Tcsh';
+use_ok 'Rex::Interface::Shell::Default';
+use_ok 'Rex::Interface::Shell::Bash';
+use_ok 'Rex::Interface::Shell::Sh';
+use_ok 'Rex::Interface::Shell::Zsh';
 use_ok 'Rex';
+
+
+use Data::Dumper;
+my @hosts = Rex::Commands::evaluate_hostname("web[01..10]");
+ok(join(",", @hosts) eq "web01,web02,web03,web04,web05,web06,web07,web08,web09,web10", "host evaluation 1");
+
+@hosts = Rex::Commands::evaluate_hostname("web[01..10]:5000");
+ok(join(",", @hosts) eq "web01:5000,web02:5000,web03:5000,web04:5000,web05:5000,web06:5000,web07:5000,web08:5000,web09:5000,web10:5000", "host evaluation 2");
+

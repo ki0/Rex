@@ -13,13 +13,17 @@ use vars qw(%task_opts %rex_opts);
 use Rex::Logger;
 use Data::Dumper;
 
+our $KEY_VAL = 1;
+our $REMOVE_TASK_OPTIONS = 0;
+our $CLEANUP = 1;
+
 sub import {
    my ($class, %args) = @_;
 
    #### clean up @ARGV
    my $runner = 0;
    for (@ARGV) {
-      if(/^\-[A-Za-z]+/ && length($_) > 2) {
+      if(/^\-[A-Za-z]+/ && length($_) > 2 && $CLEANUP) {
          my @args = map { "-$_" } split(//, substr($_, 1));
          splice(@ARGV, $runner, 1, @args);
       }
@@ -90,12 +94,22 @@ sub import {
 
    @params = @ARGV[1..$#ARGV];
 
+   my $counter = 1;
    for my $p (@params) {
       my($key, $val) = split(/=/, $p, 2);
+
+      if(defined $val) {
+         if($REMOVE_TASK_OPTIONS) {
+            splice(@ARGV, $counter, 1);
+         }
+      }
+
       $key =~ s/^--//;
 
       if($val) { $task_opts{$key} = $val; next; }
-      $task_opts{$key} = 1;
+      $task_opts{$key} = $KEY_VAL;
+
+      $counter++;
    }
 
 }

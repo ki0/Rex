@@ -51,4 +51,22 @@ sub server {
    return $self->{server};
 }
 
+sub get_auth_user {
+   my ($self) = @_;
+
+   if(exists $self->{__auth_info__}) {
+      return $self->{__auth_info__}->{user};
+   }
+
+   return "";
+}
+
+sub get_auth {
+   my ($self) = @_;
+
+   if(exists $self->{__auth_info__}) {
+      return $self->{__auth_info__};
+   }
+}
+
 1;

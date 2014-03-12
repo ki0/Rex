@@ -36,6 +36,7 @@ use Data::Dumper;
 use Rex;
 use Rex::Logger;
 use Rex::Helper::SSH2;
+use Rex::Helper::Run;
 use Rex::Helper::SSH2::Expect;
 use Rex::Config;
 use Rex::Interface::Exec;
@@ -72,15 +73,45 @@ This function will execute the given command and returns the output.
 
 =cut
 
+our $LAST_OUTPUT;   # this variable stores the last output of a run.
+                    # so that it is possible to get for example the output of an apt-get update
+                    # that is called through >> install "foo" <<
 sub run {
-   my ($cmd, $code) = @_;
+   my $cmd = shift;
+   my ($code, $option);
+   if(ref $_[0] eq "CODE") {
+      $code = shift;
+   }
+   elsif(scalar @_ > 0) {
+      $option = { @_ };
+   }
 
-   my $path = join(":", Rex::Config->get_path());
+   my $path;
+
+   if(! Rex::Config->get_no_path_cleanup()) {
+      $path = join(":", Rex::Config->get_path());
+   }
 
    my $exec = Rex::Interface::Exec->create;
-   my ($out, $err) = $exec->exec($cmd, $path);
+   my ($out, $err) = $exec->exec($cmd, $path, $option);
    chomp $out if $out;
    chomp $err if $err;
+
+   $LAST_OUTPUT = [$out, $err];
+
+   if(! defined $out) {
+      $out = "";
+   }
+
+   if(! defined $err) {
+      $err = "";
+   }
+
+   if(Rex::Config->get_exec_autodie() && Rex::Config->get_exec_autodie() == 1) {
+      if($? != 0) {
+         die("Error executing: $cmd.\nOutput:\n$out");
+      }
+   }
 
    if($code) {
       return &$code($out, $err);
@@ -111,14 +142,14 @@ sub can_run {
       return 1;
    }
 
-   my @ret = run "which $cmd";
+   my @ret = i_run "which $cmd";
    if($? != 0) { return 0; }
 
    if( grep { /^no.*in/ } @ret ) {
       return 0;
    }
 
-   return 1;
+   return $ret[0];
 }
 
 =item sudo
@@ -163,6 +194,12 @@ Run only one command within sudo.
 sub sudo {
    my ($cmd) = @_;
 
+   my $options;
+   if(ref $cmd eq "HASH") {
+      $options = $cmd;
+      $cmd = $options->{command};
+   }
+
    if($cmd eq "on" || $cmd eq "-on" || $cmd eq "1") {
       Rex::Logger::debug("Turning sudo globaly on");
       Rex::global_sudo(1);
@@ -175,7 +212,9 @@ sub sudo {
    }
 
    my $old_sudo = Rex::get_current_connection()->{use_sudo} || 0;
+   my $old_options = Rex::get_current_connection()->{sudo_options} || {};
    Rex::get_current_connection()->{use_sudo} = 1;
+   Rex::get_current_connection()->{sudo_options} = $options;
 
    my $ret;
 
@@ -184,10 +223,11 @@ sub sudo {
       $ret = &$cmd();
    }
    else {
-      $ret = run($cmd);
+      $ret = i_run($cmd);
    }
 
    Rex::get_current_connection()->{use_sudo} = $old_sudo;
+   Rex::get_current_connection()->{sudo_options} = $old_options;
 
    return $ret;
 }

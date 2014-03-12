@@ -29,20 +29,23 @@ package Rex::Commands::Gather;
 use strict;
 use warnings;
 
+use Data::Dumper;
 use Rex::Hardware;
 use Rex::Hardware::Host;
 use Rex::Hardware::Network;
 use Rex::Hardware::Memory;
 use Rex::Helper::System;
+use Rex::Commands;
 
 require Rex::Exporter;
 use base qw(Rex::Exporter);
 
 use vars qw(@EXPORT);
 
-@EXPORT = qw(operating_system_is network_interfaces memory get_operating_system operating_system_version
-               is_freebsd is_netbsd is_openbsd is_redhat is_linux is_bsd is_solaris is_suse is_debian is_mageia is_windows is_alt 
-               get_system_information);
+@EXPORT = qw(operating_system_is network_interfaces memory
+               get_operating_system operating_system operating_system_version operating_system_release
+               is_freebsd is_netbsd is_openbsd is_redhat is_linux is_bsd is_solaris is_suse is_debian is_mageia is_windows is_alt is_openwrt is_gentoo
+               get_system_information dump_system_information);
 
 =item get_operating_system
 
@@ -56,10 +59,14 @@ Will return the current operating system name.
 
 sub get_operating_system {
 
-   my $host = Rex::Hardware::Host->get();
+   my $operatingsystem = Rex::Hardware::Host->get_operating_system();
 
-   return $host->{"operatingsystem"} || "unknown";
+   return $operatingsystem || "unknown";
 
+}
+
+sub operating_system {
+   return get_operating_system();
 }
 
 =item get_system_information
@@ -70,6 +77,20 @@ Will return a hash of all system information. These Information will be also use
 sub get_system_information {
    return Rex::Helper::System::info();
 }
+
+=item dump_system_information 
+
+This function dumps all known system information on stdout.
+
+=cut
+sub dump_system_information {
+   my ($info) = @_;
+   my %sys_info = get_system_information();
+
+   inspect(\%sys_info, { prepend_key => '$', key_value_sep => " = ", no_root => 1 });
+}
+
+
 
 =item operating_system_is($string)
 
@@ -87,9 +108,9 @@ sub operating_system_is {
 
    my ($os) = @_;
 
-   my $host = Rex::Hardware::Host->get();
+   my $operatingsystem = Rex::Hardware::Host->get_operating_system();
 
-   if($host->{"operatingsystem"} eq $os) {
+   if($operatingsystem eq $os) {
       return 1;
    }
 
@@ -113,16 +134,24 @@ sub operating_system_version {
 
    my ($os) = @_;
 
-   my $host = Rex::Hardware::Host->get();
+   my $operatingsystemrelease = operating_system_release();
 
-   my $v = $host->{"operatingsystemrelease"};
-   $v =~ s/[\.,]//g;
+   $operatingsystemrelease =~ s/[\.,]//g;
 
-   return $v;
+   return $operatingsystemrelease;
 
 }
 
+=item operating_system_release()
 
+Will return the os release number as is.
+ 
+=cut
+
+sub operating_system_release {
+   my ($os) = @_;
+   return Rex::Hardware::Host->get_operating_system_version();
+}
 
 =item network_interfaces
 
@@ -188,7 +217,7 @@ Returns true if the target system is a FreeBSD.
 
 =cut
 sub is_freebsd {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
    if($os =~ m/FreeBSD/i) {
       return 1;
    }
@@ -204,9 +233,9 @@ sub is_freebsd {
 
 =cut
 sub is_redhat {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
 
-   my @redhat_clones = ("Fedora", "Redhat", "CentOS", "Scientific", "RedHatEnterpriseServer");
+   my @redhat_clones = ("Fedora", "Redhat", "CentOS", "Scientific", "RedHatEnterpriseServer" ,"RedHatEnterpriseES", "RedHatEnterpriseWorkstation");
 
    if(grep { /$os/i } @redhat_clones) {
       return 1;
@@ -223,9 +252,9 @@ sub is_redhat {
 
 =cut
 sub is_suse {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
 
-   my @suse_clones = ("OpenSuSE", "SuSE");
+   my @suse_clones = ("OpenSuSE", "SuSE", "openSUSE project");
 
    if(grep { /$os/i } @suse_clones) {
       return 1;
@@ -242,7 +271,7 @@ sub is_suse {
 
 =cut
 sub is_mageia {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
 
    if($os =~ m/mageia/i) {
       return 1;
@@ -260,7 +289,7 @@ sub is_mageia {
 
 =cut
 sub is_debian {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
 
    my @debian_clones = ("Debian", "Ubuntu");
 
@@ -279,7 +308,7 @@ sub is_debian {
 
 =cut
 sub is_alt {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
 
    my @alt_clones = ("ALT");
 
@@ -304,7 +333,7 @@ Returns true if the target system is a NetBSD.
 
 =cut
 sub is_netbsd {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
    if($os =~ m/NetBSD/i) {
       return 1;
    }
@@ -325,7 +354,7 @@ Returns true if the target system is an OpenBSD.
 
 =cut
 sub is_openbsd {
-   my $os = get_operating_system();
+   my $os = @_ ? shift : get_operating_system();
    if($os =~ m/OpenBSD/i) {
       return 1;
    }
@@ -406,6 +435,32 @@ sub is_windows {
 
    my $host = Rex::Hardware::Host->get();
    if($host->{"operatingsystem"} =~ m/^MSWin/ || $host->{operatingsystem} eq "Windows") {
+      return 1;
+   }
+
+}
+
+=item is_openwrt
+
+Returns true if the target system is an OpenWrt System.
+
+=cut
+sub is_openwrt {
+   my $os = get_operating_system();
+   if($os =~ m/OpenWrt/i) {
+      return 1;
+   }
+
+}
+
+=item is_gentoo
+
+Returns true if the target system is a Gentoo System.
+
+=cut
+sub is_gentoo {
+   my $os = get_operating_system();
+   if($os =~ m/Gentoo/i) {
       return 1;
    }
 

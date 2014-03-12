@@ -10,6 +10,7 @@ use strict;
 use warnings;
 
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 use Rex::Commands::File;
 use Rex::Commands::Fs;
 
@@ -27,19 +28,21 @@ sub new {
 }
 
 sub is_installed {
+
    my ($self, $pkg) = @_;
 
    Rex::Logger::debug("Checking if $pkg is installed");
 
-   run("dpkg -L $pkg");
+   my @pkg_info = $self->get_installed($pkg);
 
-   unless($? == 0) {
+   unless(@pkg_info) {
       Rex::Logger::debug("$pkg is NOT installed.");
       return 0;
    }
    
    Rex::Logger::debug("$pkg is installed.");
    return 1;
+
 }
 
 sub install {
@@ -55,13 +58,23 @@ sub install {
    return 1;
 }
 
+sub bulk_install {
+   my ($self, $packages_aref, $option) = @_;
+   
+   delete $option->{version}; # makes no sense to specify the same version for several packages
+    
+   $self->update("@{$packages_aref}", $option);
+   
+   return 1;
+}
+
 sub update {
    my ($self, $pkg, $option) = @_;
 
    my $version = $option->{'version'} || '';
 
    Rex::Logger::debug("Installing $pkg / $version");
-   my $f = run("DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::=--force-confold --force-yes -y install $pkg" . ($version?"=$version":""));
+   my $f = i_run("DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::=--force-confold --force-yes -y install $pkg" . ($version?"=$version":""));
 
    unless($? == 0) {
       Rex::Logger::info("Error installing $pkg.", "warn");
@@ -76,17 +89,17 @@ sub update {
 
 sub update_system {
    my ($self) = @_;
-   run("apt-get -y upgrade");
+   i_run("apt-get -y upgrade");
 }
 
 sub remove {
    my ($self, $pkg) = @_;
 
    Rex::Logger::debug("Removing $pkg");
-   my $f = run("apt-get -y remove $pkg");
+   my $f = i_run("apt-get -y remove $pkg");
 
    Rex::Logger::debug("Purging $pkg");
-   run("dpkg --purge $pkg");
+   i_run("dpkg --purge $pkg");
 
    unless($? == 0) {
       Rex::Logger::info("Error removing $pkg.", "warn");
@@ -101,28 +114,31 @@ sub remove {
 
 
 sub get_installed {
-   my ($self) = @_;
-
-   my @lines = run 'dpkg-query -W --showformat "\${Status} \${Package}|\${Version}\n"';
-
-   my @pkg;
+   my ($self, $pkg) = @_;
+   my @pkgs;
+   my $dpkg_cmd = 'dpkg-query -W --showformat "\${Status} \${Package}|\${Version}\n"';
+   if ($pkg) {
+       $dpkg_cmd .= " ". $pkg;
+   }
+   
+   my @lines = i_run $dpkg_cmd;
 
    for my $line (@lines) {
       if($line =~ m/^install ok installed ([^\|]+)\|(.*)$/) {
-         push(@pkg, {
+         push(@pkgs, {
             name    => $1,
             version => $2,
          });
       }
    }
 
-   return @pkg;
+   return @pkgs;
 }
 
 sub update_pkg_db {
    my ($self) = @_;
 
-   run "apt-get -y update";
+   i_run "apt-get -y update";
    if($? != 0) {
       die("Error updating package database");
    }
@@ -147,11 +163,11 @@ sub add_repository {
    $fh->close;
 
    if(exists $data{"key_url"}) {
-      run "wget -O - " . $data{"key_url"} . " | apt-key add -";
+      i_run "wget -O - " . $data{"key_url"} . " | apt-key add -";
    }
 
-   if(exists $data{"key-id"} && $data{"key_server"}) {
-      run "apt-key adv --keyserver " . $data{"key_server"} . " --recv-keys " . $data{"key_id"};
+   if(exists $data{"key_id"} && $data{"key_server"}) {
+      i_run "apt-key adv --keyserver " . $data{"key_server"} . " --recv-keys " . $data{"key_id"};
    }
 }
 

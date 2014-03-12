@@ -11,12 +11,14 @@ use warnings;
 
 use Rex::Logger;
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 use Rex::Commands::Fs;
 use Rex::Commands::File;
 use Rex::User::OpenBSD;
 use Rex::Interface::File;
 use Rex::Interface::Fs;
 use Rex::Interface::Exec;
+use Rex::Helper::Path;
 
 
 use base qw(Rex::User::OpenBSD);
@@ -94,13 +96,13 @@ sub create_user {
       }
    }
  
-   my $rnd_file = "/tmp/" . Rex::Commands::get_random(8, 'a' .. 'z') . ".u.tmp";
+   my $rnd_file = get_tmp_file;
    my $fh = Rex::Interface::File->create;
    $fh->open(">", $rnd_file);
    $fh->write("$cmd $user\nexit \$?\n");
    $fh->close;
 
-   run "/bin/sh $rnd_file";
+   i_run "/bin/sh $rnd_file";
    if($? == 0) {
       Rex::Logger::debug("User $user created/updated.");
    }
@@ -114,15 +116,16 @@ sub create_user {
    if(exists $data->{password}) {
       my $expect_path;
 
-      if(Rex::get_cache()->can_run("/usr/local/bin/expect")) {
+      if(can_run("/usr/local/bin/expect")) {
          $expect_path = "/usr/local/bin/expect";
       }
-      elsif(Rex::get_cache()->can_run("/usr/bin/expect")) {
+      elsif(can_run("/usr/bin/expect")) {
          $expect_path = "/usr/bin/expect";
       }
 
       if($expect_path) {
-         my $fh = file_write "/tmp/chpasswd";
+         my $chpasswd_file = get_tmp_file;
+         my $fh = file_write $chpasswd_file;
          $fh->write(qq~#!$expect_path --
 # Input: username password
 set USER [lindex \$argv 0]
@@ -142,18 +145,18 @@ expect eof
 ~);
          $fh->close;
 
-         $rnd_file = "/tmp/" . Rex::Commands::get_random(8, 'a' .. 'z') . ".u.tmp";
+         $rnd_file = get_tmp_file;
          $fh = Rex::Interface::File->create;
          $fh->open(">", $rnd_file);
-         $fh->write("/tmp/chpasswd $user '" . $data->{"password"} . "'\nexit \$?\n");
+         $fh->write("$chpasswd_file $user '" . $data->{"password"} . "'\nexit \$?\n");
          $fh->close;
 
-         chmod 700, "/tmp/chpasswd";
-         run "/bin/sh $rnd_file";
+         chmod 700, $chpasswd_file;
+         i_run "/bin/sh $rnd_file";
          if($? != 0) { die("Error changing user's password."); }
 
-         rm "/tmp/chpasswd";
-         rm "$rnd_file";
+         rm $chpasswd_file;
+         rm $rnd_file;
       }
       else {
          die("No expect found in /usr/local/bin or /usr/bin. Can't set user password.");

@@ -10,6 +10,7 @@ use strict;
 use warnings;
 
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 use Rex::Pkg::Base;
 use base qw(Rex::Pkg::Base);
 
@@ -29,7 +30,7 @@ sub is_installed {
 
    Rex::Logger::debug("Checking if $pkg is installed");
 
-   run("rpm -ql $pkg");
+   i_run("rpm -ql $pkg");
 
    unless($? == 0) {
       Rex::Logger::debug("$pkg is NOT installed.");
@@ -53,13 +54,23 @@ sub install {
    return 1;
 }
 
+sub bulk_install {
+   my ($self, $packages_aref, $option) = @_;
+   
+   delete $option->{version}; # makes no sense to specify the same version for several packages
+    
+   $self->update("@{$packages_aref}", $option);
+   
+   return 1;
+}
+
 sub update {
    my ($self, $pkg, $option) = @_;
 
    my $version = $option->{"version"} || "";
 
    Rex::Logger::debug("Installing $pkg / $version");
-   my $f = run("zypper -n install $pkg".($version?"-$version":""));
+   my $f = i_run("zypper -n install $pkg".($version?"-$version":""));
 
    unless($? == 0) {
       Rex::Logger::info("Error installing $pkg.", "warn");
@@ -76,7 +87,7 @@ sub remove {
    my ($self, $pkg) = @_;
 
    Rex::Logger::debug("Removing $pkg");
-   my $f = run("zypper -n remove $pkg");
+   my $f = i_run("zypper -n remove $pkg");
 
    unless($? == 0) {
       Rex::Logger::info("Error removing $pkg.", "warn");
@@ -92,7 +103,7 @@ sub remove {
 sub get_installed {
    my ($self) = @_;
 
-   my @lines = run 'rpm -qa --nosignature --nodigest --qf "%{NAME} %|EPOCH?{%{EPOCH}}:{0}| %{VERSION} %{RELEASE} %{ARCH}\n"';
+   my @lines = i_run 'rpm -qa --nosignature --nodigest --qf "%{NAME} %|EPOCH?{%{EPOCH}}:{0}| %{VERSION} %{RELEASE} %{ARCH}\n"';
 
    my @pkg;
 
@@ -113,13 +124,13 @@ sub get_installed {
 
 sub update_system {
    my ($self) = @_;
-   run "zypper -n up";
+   i_run "zypper -n up";
 }
 
 sub update_pkg_db {
    my ($self) = @_;
 
-   run "zypper -n ref -fd";
+   i_run "zypper --no-gpg-checks -n ref -fd";
    if($? != 0) {
       die("Error updating package repository");
    }
@@ -127,7 +138,12 @@ sub update_pkg_db {
 
 sub add_repository {
    my ($self, %data) = @_;
-   run "zypper addrepo -f -n " . $data{"name"} . " " . $data{"url"} . " " . $data{"name"};
+   i_run "zypper addrepo -f -n " . $data{"name"} . " " . $data{"url"} . " " . $data{"name"};
+   if($? == 4) {
+      if(Rex::Config->get_do_reporting) {
+         return {changed => 0};
+      }
+   }
    if($? != 0) {
       die("Error adding repository " . $data{name});
    }
@@ -135,9 +151,13 @@ sub add_repository {
 
 sub rm_repository {
    my ($self, $name) = @_;
-   run "zypper removerepo $name";
+   i_run "zypper removerepo $name";
    if($? != 0) {
       die("Error removing repository $name");
+   }
+
+   if(Rex::Config->get_do_reporting) {
+      return {changed => 1};
    }
 }
 

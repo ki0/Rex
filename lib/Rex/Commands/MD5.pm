@@ -34,6 +34,7 @@ require Rex::Commands;
 use Rex::Interface::Exec;
 use Rex::Interface::File;
 use Rex::Interface::Fs;
+use Rex::Helper::Path;
 
 
 require Rex::Exporter;
@@ -65,17 +66,25 @@ sub md5 {
       print Digest::MD5::md5_hex(<>) . "\n";
       |;
 
-      my $rnd_file = "/tmp/" . Rex::Commands::get_random(8, 'a' .. 'z') . ".tmp";
+      my $rnd_file = get_tmp_file;
+
       my $fh = Rex::Interface::File->create;
       $fh->open(">", $rnd_file);
       $fh->write($script);
       $fh->close;
 
       my $exec = Rex::Interface::Exec->create;
-      my $md5 = $exec->exec("perl $rnd_file $file");
+      my $md5;
+
+      if(Rex::is_local() && $^O =~ m/^MSWin/) {
+         $md5 = $exec->exec("perl $rnd_file \"$file\"");
+      }
+      else {
+         $md5 = $exec->exec("perl $rnd_file '$file'");
+      }
 
       unless($? == 0) {
-         $md5 = $exec->exec("md5sum $file");
+         ($md5) = split(/\s/, $exec->exec("md5sum '$file'"));
       }
 
       unless($? == 0) {

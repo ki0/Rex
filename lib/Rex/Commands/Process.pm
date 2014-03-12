@@ -103,40 +103,98 @@ List all processes on a system. Will return all fields of a I<ps aux>.
     }
  };
 
+
+On most operating systems it is also possible to define custom parameters for ps() function.
+
+ task "ps", "server01", sub {
+    my @list = grep { $_->{"ni"} == -5 } ps("command","ni");
+ };
+
+This example would contain all processes with a nice of -5.
+
+
 =cut
 
 sub ps {
+   my (@custom) = @_;
    my @list;
+
+   if(is_openwrt) {
+      # openwrt doesn't have ps aux
+      @list = run("ps");
+
+      my @ret = ();
+      for my $line (@list) {
+         $line =~ s/^\s*|\s*$//g;
+         my ($pid, $user, $vsz, $stat, $command) = split(/\s+/, $line, 5);
+
+         push( @ret, {
+            user     => $user,
+            pid      => $pid,
+            vsz      => $vsz,
+            stat     => $stat,
+            command  => $command,
+         });
+      }
+
+      return @ret;
+   }
    
-   if(operating_system_is("SunOS") && operating_system_version() <= 510) {
-      @list = run("/usr/ucb/ps aux");
+   elsif(operating_system_is("SunOS") && operating_system_version() <= 510) {
+      if(@custom) {
+         @list = run("/usr/ucb/ps ax -o" . join(",", @custom));
+      }
+      else {
+         @list = run("/usr/ucb/ps aux");
+      }
    }
    else {
-      @list = run("ps aux");
+      if(@custom) {
+         @list = run("ps ax -o" . join(",", @custom));
+      }
+      else {
+         @list = run("ps aux");
+      }
    }
 
    if($? != 0) {
-      die("Error running ps aux");
+      if(@custom) {
+         die("Error running ps ax -o" . join(",", @custom));
+      }
+      else {
+         die("Error running ps aux");
+      }
    }
    shift @list;
 
    my @ret = ();
-   for my $line (@list) {
-      my ($user, $pid, $cpu, $mem, $vsz, $rss, $tty, $stat, $start, $time, $command) = split(/\s+/, $line, 11);
+   if(@custom) {
+      for my $line (@list) {
+         $line =~ s/^\s+//;
+         my @col_vals = split(/\s+/, $line, scalar(@custom));
+         my %vals;
+         @vals{@custom} = @col_vals;
+         push @ret, { %vals };
+      }
+   }
+   else {
+      for my $line (@list) {
+         my ($user, $pid, $cpu, $mem, $vsz, $rss, $tty, $stat, $start, $time, $command) = split(/\s+/, $line, 11);
 
-      push( @ret, {
-         user     => $user,
-         pid      => $pid,
-         cpu      => $cpu,
-         mem      => $mem,
-         vsz      => $vsz,
-         rss      => $rss,
-         tty      => $tty,
-         stat     => $stat,
-         start    => $start,
-         time     => $time,
-         command  => $command,
-      });
+         push( @ret, {
+            user     => $user,
+            pid      => $pid,
+            cpu      => $cpu,
+            mem      => $mem,
+            vsz      => $vsz,
+            rss      => $rss,
+            tty      => $tty,
+            stat     => $stat,
+            start    => $start,
+            time     => $time,
+            command  => $command,
+         });
+      }
    }
 
    return @ret;
@@ -161,7 +219,7 @@ sub ps {
 Renice a process identified by $pid with the priority $level.
 
  task "renice", "server01", sub {
-    renice (153, -5);
+    nice (153, -5);
  };
 
 =cut

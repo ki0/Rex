@@ -8,6 +8,7 @@ package Rex::Inventory::DMIDecode;
 
 use strict;
 use warnings;
+use Data::Dumper;
 
 use Rex::Inventory::DMIDecode::BaseBoard;
 use Rex::Inventory::DMIDecode::Bios;
@@ -16,6 +17,7 @@ use Rex::Inventory::DMIDecode::Memory;
 use Rex::Inventory::DMIDecode::MemoryArray;
 use Rex::Inventory::DMIDecode::SystemInformation;
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 
 sub new {
    my $that = shift;
@@ -111,8 +113,31 @@ sub _read_dmidecode {
 
    my ($self) = @_;
 
-   my @lines = run "dmidecode 2>/dev/null";
+   my @lines;
+   if($self->{lines}) {
+      @lines = @{ $self->{lines} };
+   }
+   else {
+      my $dmidecode = can_run("dmidecode");
+
+      unless($dmidecode) {
+         #Rex::Logger::debug("Please install dmidecode on the target system.");
+         #return;
+         $dmidecode = "dmidecode";
+      }
+
+      @lines = i_run $dmidecode;
+      if($? != 0) {
+         Rex::Logger::debug("Please install dmidecode on the target system.");
+         return;
+      }
+   }
    chomp @lines;
+
+   unless(@lines) {
+      Rex::Logger::debug("Please install dmidecode on the target system.");
+      return;
+   }
 
    my %section = ();
    my $section = ""; 
@@ -127,7 +152,8 @@ sub _read_dmidecode {
       next if $l =~ m/^$/;
       last if $l =~ m/^End Of Table$/;
 
-
+      # for openbsd
+      $l =~ s/        /\t/g;
 
       unless(substr($l, 0, 1) eq "\t") {
          $section = $l;

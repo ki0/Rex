@@ -19,7 +19,6 @@ use Rex::Config;
 use Rex::Group;
 use Rex::Batch;
 use Rex::TaskList;
-use Rex::Cache;
 use Rex::Logger;
 use Rex::Output;
 
@@ -37,17 +36,9 @@ if($^O =~ m/MSWin/) {
 # preload some modules
 use Rex -base;
 
-BEGIN {
-
-   if(-d "lib") {
-      use lib "lib";
-   }
-
-};
-
 $|++;
 
-my %opts;
+my (%opts, @help, @exit);
 
 if($#ARGV < 0) {
    @ARGV = qw(-h);
@@ -81,6 +72,7 @@ sub __run__ {
       d => {},
       s => {},
       m => {},
+      w => {},
       S => { type => "string" },
       E => { type => "string" },
       o => { type => "string" },
@@ -94,6 +86,7 @@ sub __run__ {
       P => { type => "string" },
       K => { type => "string" },
       G => { type => "string" },
+      z => { type => "string" },
       t => { type => "integer" },
       %more_args,
    );
@@ -118,10 +111,10 @@ sub __run__ {
    }
 
    if($opts{"c"}) {
-      $Rex::Cache::USE = 1;
+      Rex::Config->set_use_cache(1);
    }
    elsif($opts{"C"}) {
-      $Rex::Cache::USE = 0;
+      Rex::Config->set_use_cache(0);
    }
 
    Rex::Logger::debug("Command Line Parameters");
@@ -137,6 +130,9 @@ sub __run__ {
 
    if($opts{'q'}) {
       $::QUIET = 1;
+      if($opts{'w'}) {
+         $::QUIET = 2;
+      }
    }
 
    $::rexfile = "Rexfile";
@@ -174,6 +170,18 @@ sub __run__ {
 
    }
 
+   if ($opts{'z'}) {
+      my $host_eval = eval {
+         `$opts{'z'}`;
+      };
+      if ($host_eval =~ m/\S/xms) {
+         $::FORCE_SERVER = join(" ", split /\n|,|;/, $host_eval);
+      }
+      else {
+         Rex::Logger::info("you must give a valid command.");
+      }
+   }
+
    if($opts{'o'}) {
       Rex::Output->get($opts{'o'});
    }
@@ -181,6 +189,17 @@ sub __run__ {
    # Load Rexfile before exec in order to suppport group exec
    if(-f $::rexfile) {
       Rex::Logger::debug("$::rexfile exists");
+
+      Rex::Logger::debug("Checking Rexfile Syntax...");
+      
+      my $out = qx{$^X -MRex::Commands -MRex::Commands::Run -MRex::Commands::Fs -MRex::Commands::Download -MRex::Commands::Upload -MRex::Commands::File -MRex::Commands::Gather -MRex::Commands::Kernel -MRex::Commands::Pkg -MRex::Commands::Service -MRex::Commands::Sysctl -MRex::Commands::Tail -MRex::Commands::Process -c $::rexfile 2>&1};
+      if($? > 0) {
+         print $out;
+      }
+
+      if($? != 0) {
+         exit 1;
+      }
 
       if($^O !~ m/^MSWin/) {
          if(-f "$::rexfile.lock" && ! exists $opts{'F'}) {
@@ -192,22 +211,12 @@ sub __run__ {
                CORE::exit 1;
             } else
             {
-               Rex::Logger::info("Found stale lock file. Removing it.");
+               Rex::Logger::debug("Found stale lock file. Removing it.");
                Rex::global_sudo(0);
                CORE::unlink("$::rexfile.lock");
             }
          }
          
-         Rex::Logger::debug("Checking Rexfile Syntax...");
-         my $out = qx{PERL5LIB=lib:\$PERL5LIB $^X -MRex::Commands -MRex::Commands::Run -MRex::Commands::Fs -MRex::Commands::Download -MRex::Commands::Upload -MRex::Commands::File -MRex::Commands::Gather -MRex::Commands::Kernel -MRex::Commands::Pkg -MRex::Commands::Service -MRex::Commands::Sysctl -MRex::Commands::Tail -MRex::Commands::Process -c $::rexfile 2>&1};
-         if($? > 0) {
-            print $out;
-         }
-
-         if($? != 0) {
-            exit 1;
-         }
-
          Rex::Logger::debug("Creating lock-file ($::rexfile.lock)");
          open(my $f, ">$::rexfile.lock") or die($!);
          print $f $$; 
@@ -248,9 +257,9 @@ sub __run__ {
 
       eval {
          my $ok = do($::rexfile);
-         Rex::Logger::info("eval your Rexfile.");
+         Rex::Logger::debug("eval your Rexfile.");
          if(! $ok) {
-            Rex::Logger::info("There seems to be an error on some of your required files.", "error");
+            Rex::Logger::info("There seems to be an error on some of your required files. $@", "error");
             my @dir = (dirname($::rexfile));
             for my $d (@dir) {
                opendir(my $dh, $d) or die($!);
@@ -266,7 +275,7 @@ sub __run__ {
 
                   if($entry =~ m/Rexfile/ || $entry =~ m/\.pm$/) {
                      # check files for syntax errors
-                     my $check_out = qx{PERL5LIB=lib:\$PERL5LIB $^X -MRex::Commands -MRex::Commands::Run -MRex::Commands::Fs -MRex::Commands::Download -MRex::Commands::Upload -MRex::Commands::File -MRex::Commands::Gather -MRex::Commands::Kernel -MRex::Commands::Pkg -MRex::Commands::Service -MRex::Commands::Sysctl -MRex::Commands::Tail -MRex::Commands::Process -c $d/$entry 2>&1};
+                     my $check_out = qx{$^X -MRex::Commands -MRex::Commands::Run -MRex::Commands::Fs -MRex::Commands::Download -MRex::Commands::Upload -MRex::Commands::File -MRex::Commands::Gather -MRex::Commands::Kernel -MRex::Commands::Pkg -MRex::Commands::Service -MRex::Commands::Sysctl -MRex::Commands::Tail -MRex::Commands::Process -c $d/$entry 2>&1};
                      if($? > 0) {
                         print "$d/$entry\n";
                         print "--------------------------------------------------------------------------------\n";
@@ -285,6 +294,13 @@ sub __run__ {
       if($@) { print $@ . "\n"; exit 1; }
 
    }
+   else {
+      Rex::Logger::info("No Rexfile found.", "warn");
+      Rex::Logger::info("Please create a file named 'Rexfile' inside this directory,", "warn");
+      Rex::Logger::info("or specify the file you want to use with:", "warn");
+      Rex::Logger::info("    rex -f file_to_use task_to_run", "warn");
+   }
+
    if($opts{'e'}) {
       Rex::Logger::debug("Executing command line code");
       Rex::Logger::debug("\t" . $opts{'e'});
@@ -299,6 +315,10 @@ sub __run__ {
       if($@) {
          Rex::Logger::info("Error in eval line: $@\n", "warn");
          exit 1;
+      }
+
+      if(exists $opts{'t'}) {
+         parallelism($opts{'t'});
       }
 
       my $pass_auth = 0;
@@ -337,6 +357,7 @@ sub __run__ {
 
       Rex::TaskList->create()->create_task("eval-line", @params);
       Rex::Commands::do_task("eval-line");
+      CORE::exit(0);
    }
    elsif($opts{'M'}) {
       Rex::Logger::debug("Loading Rex-Module: " . $opts{'M'});
@@ -429,7 +450,7 @@ sub __run__ {
              _print_color("      " . join(" ", Rex::Batch->get_batch($batch)) . "\n");
          }
       }
-      _print_color("Environments\n", "yellow") if(Rex::Commands->get_environments);
+      _print_color("Environments\n", "yellow");
       print "  " . join("\n  ", Rex::Commands->get_environments()) . "\n";
 
       my %groups = Rex::Group->get_groups;
@@ -464,9 +485,18 @@ sub __run__ {
    };
 
    if($@) {
+      # this is always the child
       Rex::Logger::info("Error running task/batch: $@", "warn");
+      CORE::exit(0);
    }
 
+   my @exit_codes;
+
+   if($Rex::WITH_EXIT_STATUS) {
+      @exit_codes = Rex::TaskList->create()->get_exit_codes();
+   }
+#print ">> $$\n";
+#print Dumper(\@exit_codes);
    # lock loeschen
    Rex::global_sudo(0);
    Rex::Logger::debug("Removing lockfile") if(! exists $opts{'F'});
@@ -481,9 +511,22 @@ sub __run__ {
       CORE::unlink("vars.db.lock");
    }
 
-
-
    select STDOUT;
+
+   for my $exit_hook (@exit) {
+      &$exit_hook();
+   }
+
+   if($Rex::WITH_EXIT_STATUS) {
+      for my $exit_code (@exit_codes) {
+         if($exit_code != 0) {
+            exit($exit_code);
+         }
+      }
+   }
+   else {
+      exit(0);
+   }
 
    sub _print_color {
        my ($msg, $color) = @_;
@@ -508,6 +551,7 @@ sub __help__ {
    printf "  %-15s %s\n", "-e", "Run the given code fragment";
    printf "  %-15s %s\n", "-E", "Execute task on the given environment";
    printf "  %-15s %s\n", "-H", "Execute task on these hosts";
+   printf "  %-15s %s\n", "-z", "Execute task on hosts from this command's output";
    printf "  %-15s %s\n", "-G", "Execute task on these group";
    printf "  %-15s %s\n", "-u", "Username for the ssh connection";
    printf "  %-15s %s\n", "-p", "Password for the ssh connection";
@@ -517,6 +561,7 @@ sub __help__ {
    printf "  %-15s %s\n", "-Tv", "List all known tasks with all information.";
    printf "  %-15s %s\n", "-f", "Use this file instead of Rexfile";
    printf "  %-15s %s\n", "-h", "Display this help";
+   printf "  %-15s %s\n", "-m", "Monochrome output. No colors";
    printf "  %-15s %s\n", "-M", "Load Module instead of Rexfile";
    printf "  %-15s %s\n", "-v", "Display (R)?ex Version";
    printf "  %-15s %s\n", "-F", "Force. Don't regard lock file";
@@ -528,12 +573,27 @@ sub __help__ {
    printf "  %-15s %s\n", "-c", "Turn cache ON";
    printf "  %-15s %s\n", "-C", "Turn cache OFF";
    printf "  %-15s %s\n", "-q", "Quiet mode. No Logging output";
+   printf "  %-15s %s\n", "-qw", "Quiet mode. Only output warnings and errors";
    printf "  %-15s %s\n", "-Q", "Really quiet. Output nothing.";
    printf "  %-15s %s\n", "-t", "Number of threads to use.";
    print "\n";
 
+   for my $code (@help) {
+      &$code();
+   }
+
    CORE::exit 0;
 
+}
+
+sub add_help {
+   my ($self, $code) = @_;
+   push(@help, $code);
+}
+
+sub add_exit {
+   my ($self, $code) = @_;
+   push(@exit, $code);
 }
 
 sub __version__ {

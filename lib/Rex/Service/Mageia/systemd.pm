@@ -4,27 +4,26 @@
 # vim: set ts=3 sw=3 tw=0:
 # vim: set expandtab:
 
-package Rex::Pkg::SunOS::Blastwave;
+package Rex::Service::Mageia::systemd;
 
 use strict;
 use warnings;
 
 use Rex::Commands::Run;
-use Rex::Commands::File;
-use Rex::Pkg::SunOS::OpenCSW;
+use Rex::Logger;
+use Rex::Commands::Fs;
 
-use base qw(Rex::Pkg::SunOS::OpenCSW);
+use Rex::Service::Redhat::systemd;
+use base qw(Rex::Service::Redhat::systemd);
 
 sub new {
    my $that = shift;
    my $proto = ref($that) || $that;
-   my $self = { @_ };
+   my $self = $proto->SUPER::new(@_);
 
    bless($self, $proto);
 
    return $self;
 }
-
-sub _pkgutil { return "/opt/bw/bin/pkgutil"; }
 
 1;

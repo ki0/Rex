@@ -38,6 +38,7 @@ use strict;
 use warnings;
 
 use Expect;
+$Expect::Log_Stdout = 0;
 
 require Rex::Exporter;
 
@@ -86,17 +87,20 @@ sub sync {
    my ($source, $dest, $opt) = @_;
 
    my $current_connection = Rex::get_current_connection();
+   my $server = $current_connection->{server};
    my $cmd;
+
+   my $auth = $current_connection->{conn}->get_auth;
+
 
    if(! exists $opt->{download} && $source !~ m/^\//) {
       # relative path, calculate from module root
+      $source = Rex::Helper::Path::get_file_path($source, caller());
+   }
 
-      my ($caller_package, $caller_file, $caller_line) = caller;
-      my $module_path = Rex::get_module_path($caller_package);
-
-      if($module_path) {
-         $source = "$module_path/$source";
-      }
+   Rex::Logger::debug("Syning $source -> $dest with rsync.");
+   if($Rex::Logger::debug) {
+      $Expect::Log_Stdout = 1;
    }
 
    my $params = "";
@@ -114,19 +118,19 @@ sub sync {
 
    if($opt && exists $opt->{'download'} && $opt->{'download'} == 1) {
       Rex::Logger::debug("Downloading $source -> $dest");
-      $cmd = "rsync -a -e '\%s' --verbose --stats $params " . Rex::Config->get_user . "\@" . $current_connection->{"server"} . ":"
+      $cmd = "rsync -a -e '\%s' --verbose --stats $params " . $auth->{user} . "\@" . $server . ":"
                      . $source . " " . $dest;
    }
    else {
       Rex::Logger::debug("Uploading $source -> $dest");
-      $cmd = "rsync -a -e '\%s' --verbose --stats $params $source " . Rex::Config->get_user . "\@" . $current_connection->{"server"} . ":"
+      $cmd = "rsync -a -e '\%s' --verbose --stats $params $source " . $auth->{user} . "\@" . $server . ":"
                      . $dest;
    }
 
-   my $pass = Rex::Config->get_password;
+   my $pass = $auth->{password};
    my @expect_options = ();
 
-   if(Rex::Config->get_password_auth) {
+   if($auth->{auth_type} eq "pass") {
       $cmd = sprintf($cmd, 'ssh -o StrictHostKeyChecking=no ');
       push(@expect_options, [
                               qr{Are you sure you want to continue connecting},
@@ -138,19 +142,27 @@ sub sync {
                               }
                             ],
                             [
-                              qr{password: $},
+                              qr{password: ?$}i,
                               sub {
                                  Rex::Logger::debug("Want Password");
                                  my $fh = shift;
                                  $fh->send($pass . "\n");
                                  exp_continue;
                               }
-                           ]
+                           ],
+                           [
+                                 qr{rsync error: error in rsync protocol},
+                                 sub {
+                                    Rex::Logger::debug("Error in rsync");
+                                    die;
+                                 }
+                           ],
+
       
       );
    }
    else {
-      $cmd = sprintf($cmd, 'ssh -i ' . Rex::Config->get_private_key . " -o StrictHostKeyChecking=no ");
+      $cmd = sprintf($cmd, 'ssh -i ' . $server->get_private_key . " -o StrictHostKeyChecking=no ");
       push(@expect_options, [
                               qr{Are you sure you want to continue connecting},
                               sub {
@@ -161,6 +173,15 @@ sub sync {
                               }
                             ],
                             [
+                              qr{password: ?$}i,
+                              sub {
+                                 Rex::Logger::debug("Want Password");
+                                 my $fh = shift;
+                                 $fh->send($pass . "\n");
+                                 exp_continue;
+                              }
+                           ],
+                           [
                               qr{Enter passphrase for key.*: $},
                               sub {
                                  Rex::Logger::debug("Want Passphrase");
@@ -168,7 +189,15 @@ sub sync {
                                  $fh->send($pass . "\n");
                                  exp_continue;
                               }
-                           ]
+                           ],
+                           [
+                                 qr{rsync error: error in rsync protocol},
+                                 sub {
+                                    Rex::Logger::debug("Error in rsync");
+                                    die;
+                                 }
+                           ],
+
       );
    }
 
@@ -193,12 +222,22 @@ sub sync {
                               Rex::Logger::debug("Finished transfer");
                               exp_continue;
                            }
-                        ]);
+                        ],
+                        [
+                              qr{rsync error: error in rsync protocol},
+                              sub {
+                                 Rex::Logger::debug("Error in rsync");
+                                 die;
+                              }
+                        ],
+                        );
 
       };
 
       $exp->soft_close;
+      $? = $exp->exitstatus;
    };
+
 
    if($@) {
       Rex::Logger::info($@);

@@ -70,6 +70,11 @@ And then you can use it the following way in your Rexfile.
     boxes "init";
  };
 
+=head1 HEADLESS MODE
+
+It is also possible to run VirtualBox in headless mode. This only works on Linux and MacOS. If you want to do this you can use the following option at the top of your I<Rexfile>.
+
+ set box_options => { headless => TRUE };
 
 =head1 METHODS
 
@@ -118,6 +123,10 @@ sub new {
 
    bless($self, ref($class) || $class);
 
+   if(exists $self->{options} && exists $self->{options}->{headless} && $self->{options}->{headless}) {
+      set virtualization => { type => "VBox", headless => TRUE };
+   }
+
    return $self;
 }
 
@@ -160,6 +169,10 @@ sub import_vm {
                   "nic$nic_no" => $option->{$nic_no}->{type};
 
             if($option->{$nic_no}->{type} eq "bridged") {
+
+               $option->{$nic_no}->{bridge} = select_bridge()
+                  if(!$option->{$nic_no}->{bridge});
+
                Rex::Logger::debug("Setting network bridge (dev: $nic_no) to: " . ($option->{$nic_no}->{bridge} || "eth0"));
                vm option => $self->{name},
                   "bridgeadapter$nic_no" => ($option->{$nic_no}->{bridge} || "eth0");
@@ -229,6 +242,35 @@ sub provision_vm {
    }
 }
 
+sub select_bridge {
+   my $bridges = vm "bridge";
+
+   my $ifname;
+   if (@$bridges == 1) {
+      Rex::Logger::debug("Only one bridged interface available. Using it by default.");
+      $ifname = $bridges->[0]->{name};
+   }
+   elsif (@$bridges > 1) {
+      for (my $i = 0; $i < @$bridges; $i++) {
+         my $bridge = $bridges->[$i];
+         next if ($bridge->{status} =~ /^down$/i);
+         local $Rex::Logger::format = "%s";
+         Rex::Logger::info($i + 1 . " $bridge->{name}");
+      }
+
+      my $choice;
+      do {
+         print "What interface should network bridge to? ";
+         chomp($choice = <STDIN>);
+         $choice = int($choice);
+      } while(!$choice);
+
+      $ifname = $bridges->[$choice - 1]->{name};
+   }
+
+   return $ifname;
+}
+
 =item forward_port(%option)
 
 Set ports to be forwarded to the VM. This only work with VirtualBox in NAT network mode.
@@ -282,10 +324,12 @@ sub info {
    # get forwarded ports
    my @forwarded_ports = grep { m/^Forwarding/ } keys %{ $vm_info };
 
+   my %forward_port;
    for my $fwp (@forwarded_ports) {
       my ($name, $proto, $host_ip, $host_port, $vm_ip, $vm_port) = split(/,/, $vm_info->{$fwp});
-      $self->forward_port($name => [$host_port, $vm_port]);
+      $forward_port{$name} = [$host_port, $vm_port];
    }
+   $self->forward_port(%forward_port);
 
    return $self->{info};
 }

@@ -10,6 +10,7 @@ use strict;
 use warnings;
 
 use Fcntl;
+use Rex::Helper::Encode;
 use Rex::Interface::Exec;
 use Rex::Interface::Fs::Base;
 use base qw(Rex::Interface::Fs::Base);
@@ -76,9 +77,6 @@ sub is_file {
 
    Rex::Commands::profiler()->start("is_file: $file");
    my $sftp = Rex::get_sftp();
-   if( $sftp->opendir($file) ) {
-   }
-
    if( $sftp->open($file, O_RDONLY) ) {
       # return true if $file can be opened read only
       $ret = 1;
@@ -184,7 +182,7 @@ sub rename {
 
    # don't use rename() doesn't work with different file systems / partitions
    my $exec = Rex::Interface::Exec->create;
-   $exec->exec("/bin/mv $old $new");
+   $exec->exec("/bin/mv '$old' '$new'");
 
    if( (! $self->is_file($old) && ! $self->is_dir($old) ) && ( $self->is_file($new) || $self->is_dir($new)) ) {
       $ret = 1;
@@ -202,13 +200,13 @@ sub glob {
 
    my $ssh = Rex::is_ssh();
    my $exec = Rex::Interface::Exec->create;
-   my $content = $exec->exec("perl -MData::Dumper -le'print Dumper [ glob(\"$glob\") ]'");
-   $content =~ s/^\$VAR1 =/return /;
-   my $tmp = eval $content;
+   my $content = $exec->exec("perl -le'print join(\"*,*,*\", glob(\"$glob\"))'");
+   chomp $content;
+   my @files = split(/\*,\*,\*/, $content);
 
    Rex::Commands::profiler()->end("glob: $glob");
 
-   return @{$tmp};
+   return @files;
 }
 
 sub upload {

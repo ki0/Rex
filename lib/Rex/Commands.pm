@@ -95,8 +95,6 @@ package Rex::Commands;
 use strict;
 use warnings;
 
-use Data::Dumper;
-
 require Rex::Exporter;
 use Rex::TaskList;
 use Rex::Logger;
@@ -109,9 +107,9 @@ use vars qw(@EXPORT $current_desc $global_no_ssh $environments $dont_register_ta
 use base qw(Rex::Exporter);
 
 @EXPORT = qw(task desc group 
-            user password port sudo_password public_key private_key pass_auth key_auth no_ssh
+            user password port sudo_password public_key private_key pass_auth key_auth krb5_auth no_ssh
             get_random batch timeout max_connect_retries parallelism
-            do_task run_task needs
+            do_task run_task run_batch needs
             exit
             evaluate_hostname
             logging
@@ -123,14 +121,22 @@ use base qw(Rex::Exporter);
             set
             get
             before after around
-            logformat
+            logformat log_format
+            sayformat say_format
             connection
             auth
             FALSE TRUE
             set_distributor
+            set_executor_for
             template_function
             report
             make
+            source_global_profile
+            last_command_output
+            case
+            inspect
+            tmp_dir
+            cache
           );
 
 our $REGISTER_SUB_HASH_PARAMTER = 0;
@@ -287,6 +293,7 @@ sub task {
 
       my $code = $_[-2];
       *{"${class}::$task_name_save"} = sub {
+         Rex::Logger::info("Running task $task_name_save on current connection");
          if(ref($_[0]) eq "HASH") {
             $code->(@_);
          }
@@ -317,7 +324,7 @@ sub task {
       use strict;
    }
 
-   $options->{'dont_register'} = $dont_register_tasks;
+   $options->{'dont_register'} ||= $dont_register_tasks;
    Rex::TaskList->create()->create_task($task_name, @_, $options);
 }
 
@@ -458,6 +465,16 @@ sub auth {
       Rex::Logger::debug("Please remember that the default auth information/task auth information has precedence.");
       Rex::Logger::debug("If you want to overwrite this behaviour please use ,,use Rex -feature => 0.31;'' in your Rexfile.");
       Rex::Logger::debug("=================================================");
+   }
+
+   if(exists $data{pass_auth}) {
+      $data{auth_type} = "pass";
+   }
+   if(exists $data{key_auth}) {
+      $data{auth_type} = "key";
+   }
+   if(exists $data{krb5_auth}) {
+      $data{auth_type} = "krb5";
    }
 
    Rex::Logger::debug("Setting auth info for " . ref($group) . " $entity");
@@ -622,6 +639,29 @@ sub run_task {
 
 }
 
+=item run_batch($batch_name, %option)
+
+Run a batch on a given host.
+
+ my @return = run_batch "batchname", on => "192.168.3.56";
+
+It calls internally run_task, and passes it any option given.
+
+=cut
+
+sub run_batch {
+   my ($batch_name, %option) = @_;
+
+   my @tasks = Rex::Batch->get_batch($batch_name);
+   my @results;   
+   for my $task (@tasks) {
+      my $return = run_task $task, %option;
+      push @results, $return;
+   }
+   
+   return @results;
+}
+
 =item public_key($key)
 
 Set the public key.
@@ -662,16 +702,33 @@ sub pass_auth {
 
 If you want to use pubkey authentication, then you need to call I<key_auth>.
 
- user "root";
- password "root";
+ user "bob";
+ private_key "/home/bob/.ssh/id_rsa"; # passphrase-less key
+ public_key "/home/bob/.ssh/id_rsa.pub";
  
- pass_auth;
+ key_auth;
 
 =cut
 
 sub key_auth {
    if(wantarray) { return "key"; }
    Rex::Config->set_key_auth(1);
+}
+
+=item krb5_auth
+
+If you want to use kerberos authentication, then you need to call I<krb5_auth>.
+This authentication mechanism is only available if you use Net::OpenSSH.
+
+ set connection => "OpenSSH";
+ user "root";
+ krb5_auth;
+
+=cut
+
+sub krb5_auth {
+   if(wantarray) { return "krb5"; }
+   Rex::Config->set_krb5_auth(1);
 }
 
 =item parallelism($count)
@@ -768,6 +825,13 @@ Depend on the I<uname> task in the package MyPkg. The I<uname> task will be call
     needs MyPkg "uname";
  };
 
+=item To call tasks defined in the Rexfile from within a module
+
+ task "mytask", "server1", sub {
+    needs main "uname";
+ };
+
+
 =back
 
 =cut
@@ -779,6 +843,10 @@ sub needs {
    if(ref($self) eq "ARRAY") {
       @args = @{ $self };
       ($self) = caller;
+   }
+
+   if($self eq "main") {
+      $self = "Rex::CLI";
    }
 
    no strict 'refs';
@@ -815,6 +883,16 @@ sub needs {
    }
 
 }
+
+# register needs in main namespace
+{
+   my ($caller_pkg) = caller(1);
+   if($caller_pkg eq "Rex::CLI") {
+      no strict 'refs';
+      *{"main::needs"} = \&needs;
+      use strict;
+   }
+};
 
 =item include Module::Name
 
@@ -895,7 +973,7 @@ sub environment {
       return 1;
    }
    else {
-      return Rex::Config->get_environment;
+      return Rex::Config->get_environment || "default";
    }
 }
 
@@ -923,14 +1001,16 @@ sub LOCAL (&) {
          conn   => $local_connect,
          ssh    => 0,
          server => $cur_conn->{server}, 
-         cache => Rex::Cache->new(),
+         cache => Rex::Interface::Cache->create(),
          task  => task(),
    });
 
 
-   $_[0]->();
+   my $ret = $_[0]->();
 
    Rex::pop_connection();
+
+   return $ret;
 }
 
 =item path(@path)
@@ -981,6 +1061,11 @@ Or in a template
 =cut
 sub get {
    my ($key) = @_;
+
+   if(ref($key) eq "Rex::Value") {
+      return $key->value;
+   }
+
    return Rex::Config->get($key);
 }
 
@@ -1074,6 +1159,8 @@ sub logformat {
    $Rex::Logger::format = $format;
 }
 
+sub log_format { logformat(@_); }
+
 =item connection
 
 This function returns the current connection object.
@@ -1084,7 +1171,22 @@ This function returns the current connection object.
 
 =cut
 sub connection {
-   return Rex::get_current_connection()->{"conn"};
+   return Rex::get_current_connection()->{conn};
+}
+
+=item cache
+
+This function returns the current cache object.
+
+=cut
+sub cache {
+   my ($type) = @_;
+
+   if(! $type) {
+      return Rex::get_cache();
+   }
+
+   Rex::Config->set_cache_type($type);
 }
 
 =item profiler
@@ -1102,26 +1204,233 @@ sub profiler {
    return $c_profiler;
 }
 
-=item report($string)
+=item report($switch, $type)
+
+This function will initialize the reporting.
+
+ report -on => "YAML";
 
 =cut
 sub report {
    my ($str, $type) = @_;
 
+   $type ||= "Base";
+   Rex::Config->set_report_type($type);
+
    if($str eq "-on" || $str eq "on") {
-      $type ||= "Base";
-      $str = "Createing $type reporting class";
+      Rex::Config->set_do_reporting(1);
+      return;
+   }
+   elsif($str eq "-off" || $str eq "off") {
+      Rex::Config->set_do_reporting(0);
+      return;
    }
 
-   Rex::Report->create($type)->report($str);
+   return Rex::get_current_connection()->{reporter};
+}
+
+=item source_global_profile(0|1)
+
+If this option is set, every run() command will first source /etc/profile before getting executed.
+
+=cut
+
+sub source_global_profile {
+   my ($source) = @_;
+   Rex::Config->set_source_global_profile($source);
+}
+
+=item last_command_output
+
+This function returns the output of the last "run" command.
+
+On a debian system this example will return the output of I<apt-get install foobar>.
+
+ task "mytask", "myserver", sub {
+    install "foobar";
+    say last_command_output();
+ };
+
+=cut
+
+sub last_command_output {
+   return $Rex::Commands::Run::LAST_OUTPUT->[0];
+}
+
+=item case($compare, $option)
+
+This is a function to compare a string with some given options.
+
+ task "mytask", "myserver", sub {
+    my $ntp_service = case operating_sytem, {
+                         Debian  => "ntp",
+                         default => "ntpd",
+                      };
+      
+    my $ntp_service = case operating_sytem, {
+                         qr{debian}i => "ntp",
+                         default     => "ntpd",
+                      };
+     
+    my $ntp_service = case operating_sytem, {
+                         qr{debian}i => "ntp",
+                         default     => sub { return "foo"; },
+                      };
+ };
+
+=cut
+sub case {
+   my ($compare, $option) = @_;
+
+   my $to_return = undef;
+
+   if(exists $option->{$compare}) {
+      $to_return = $option->{$compare};
+   }
+   else {
+      for my $key (keys %{ $option }) {
+         if($compare =~ $key) {
+            $to_return = $option->{$key};
+            last;
+         }
+      }
+   }
+
+   if(exists $option->{default} && ! $to_return) {
+      $to_return = $option->{default};
+   }
+
+   if(ref $to_return eq "CODE") {
+      $to_return = &$to_return();
+   }
+
+   return $to_return;
+}
+
+=item set_executor_for($type, $executor)
+
+Set the executor for a special type. This is primary used for the upload_and_run helper function.
+
+ set_executor_for perl => "/opt/local/bin/perl";
+
+=cut
+sub set_executor_for {
+   Rex::Config->set_executor_for(@_);
+}
+
+=item tmp_dir($tmp_dir)
+
+Set the tmp directory on the remote host to store temporary files.
+
+=cut
+
+sub tmp_dir {
+   Rex::Config->set_tmp_dir(@_);
+}
+
+=item inspect($varRef)
+
+This function dumps the contents of a variable to STDOUT.
+
+task "mytask", "myserver", sub {
+   my $myvar = {
+      name => "foo",
+      sys  => "bar",
+   };
+    
+   inspect $myvar;
+};
+
+=cut
+
+
+
+my $depth = 0;
+sub _dump_hash {
+   my ($hash, $option) = @_;
+
+   unless($depth == 0 && exists $option->{no_root} && $option->{no_root}) {
+      print "{\n";
+   }
+   $depth++;
+
+   for my $key (keys %{ $hash }) {
+      _print_indent($option);
+      if(exists $option->{prepend_key}) { print $option->{prepend_key}; }
+      print "$key" . ( exists $option->{key_value_sep} ? $option->{key_value_sep} : " => " );
+      _dump_var($hash->{$key});
+   }
+
+   $depth--;
+   _print_indent($option);
+
+   unless($depth == 0 && exists $option->{no_root} && $option->{no_root}) {
+      print "}\n";
+   }
+}
+
+sub _dump_array {
+   my ($array, $option) = @_;
+
+   unless($depth == 0 && exists $option->{no_root} && $option->{no_root}) {
+      print "[\n";
+   }
+   $depth++;
+
+   for my $itm (@{ $array }) {
+      _print_indent($option);
+      _dump_var($itm);
+   }
+
+   $depth--;
+   _print_indent($option);
+
+   unless($depth == 0 && exists $option->{no_root} && $option->{no_root}) {
+      print "]\n";
+   }
+}
+
+sub _print_indent {
+   my ($option) = @_;
+   unless($depth == 1 && exists $option->{no_root} && $option->{no_root}) {
+      print "   " x $depth;
+   }
+}
+
+sub _dump_var {
+   my ($var, $option) = @_;
+
+   if(ref $var eq "HASH") {
+      _dump_hash($var, $option);
+   }
+   elsif(ref $var eq "ARRAY") {
+      _dump_array($var, $option);
+   }
+   else {
+      if(defined $var) {
+         $var =~ s/\n/\\n/gms;
+         $var =~ s/\r/\\r/gms;
+         $var =~ s/'/\\'/gms;
+
+         print "'$var'\n";
+      }
+      else {
+         print "no value\n";
+      }
+   }
+}
+
+sub inspect {
+   _dump_var(@_);
 }
 
 ######### private functions
 
 sub evaluate_hostname {
    my $str = shift;
+   return unless $str;
 
-   my ($start, $from, $to, $dummy, $step, $end) = $str =~ m/^([0-9\.\w-]+)\[(\d+)..(\d+)(\/(\d+))?\]([0-9\w\.-]+)?$/;
+   my ($start, $from, $to, $dummy, $step, $end) = $str =~ m/^([0-9\.\w\-:]+)\[(\d+)..(\d+)(\/(\d+))?\]([0-9\w\.\-:]+)?$/;
 
    unless($start) {
       return $str;
@@ -1150,8 +1459,7 @@ sub exit {
 
    Rex::global_sudo(0);
    unlink("$::rexfile.lock") if($::rexfile);
-
-   CORE::exit(@_);
+   CORE::exit($_[0] || 0);
 }
 
 sub get_environment {
@@ -1168,9 +1476,84 @@ sub get_environments {
    return sort { $a cmp $b } keys %{$environments};
 }
 
+=item sayformat($format)
+
+You can define the format of the say() function.
+
+%D - The current date yyyy-mm-dd HH:mm:ss
+
+%h - The target host
+
+%p - The pid of the running process
+
+%s - The Logstring
+
+You can also define the following values:
+
+default - the default behaviour.
+
+asis - will print every single parameter in its own line. This is usefull if you want to print the output of a command.
+
+=cut
+
+sub sayformat {
+   my ($format) = @_;
+   Rex::Config->set_say_format($format);
+}
+
+sub say_format { sayformat(@_); }
+
 sub say {
-   return unless $_[0];
-   print @_, "\n";
+   my (@data) = @_;
+
+   return unless defined $_[0];
+
+   my $format = Rex::Config->get_say_format;
+   if(! defined $format || $format eq "default") {
+      print @_, "\n";
+      return;
+   }
+
+   if($format eq "asis") {
+      print join("\n", @_);
+      return;
+   }
+
+   for my $line (@data) {
+      print _format_string($format, $line) . "\n";
+   }
+
+}
+
+# %D - Date
+# %h - Host
+# %s - Logstring
+sub _format_string {
+   my ($format, $line) = @_;
+
+   my $date = _get_timestamp();
+   my $host = Rex::get_current_connection() ? Rex::get_current_connection()->{conn}->server : "<local>";
+   my $pid = $$;
+
+   $format =~ s/\%D/$date/gms;
+   $format =~ s/\%h/$host/gms;
+   $format =~ s/\%s/$line/gms;
+   $format =~ s/\%p/$pid/gms;
+
+   return $format;
+}
+
+sub _get_timestamp {
+   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+   $mon++;
+   $year += 1900;
+
+   return "$year-" 
+               . sprintf("%02i", $mon) . "-" 
+               . sprintf("%02i", $mday) . " " 
+               . sprintf("%02i", $hour) . ":" 
+               . sprintf("%02i", $min) . ":" 
+               . sprintf("%02i", $sec);
 }
 
 sub TRUE {

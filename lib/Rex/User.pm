@@ -27,6 +27,9 @@ sub get {
    elsif(operating_system_is("SunOS")) {
       $user_o = "SunOS";
    }
+   elsif(is_openwrt) {
+      $user_o = "OpenWrt";
+   }
 
    my $class = "Rex::User::" . $user_o;
    eval "use $class";
@@ -34,7 +37,7 @@ sub get {
    if($@) {
    
       Rex::Logger::info("OS not supported");
-      exit 1;
+      die("OS not supported");
    
    }
 

@@ -1,3 +1,207 @@
+2014-02-17 Jan Gehring <jan.gehring, gmail.com> (0.44.4)
+  * fixed manifest file
+
+2014-02-14 Jan Gehring <jan.gehring, gmail.com> (0.44.3)
+  * do not call sprintf on undefined values to prevent warnings - #312 - sbertrang
+  * add ksh to shells - #310 - sbertrang
+  * only pass actual option strings to prevent ssh crashes - #309 - sbertrang
+  * rexify does not create projects due to missing file error - #318
+  * sed command changes mode of target file - #314
+
+2014-02-08 Jan Gehring <jan.gehring, gmail.com> (0.44.2)
+  * fixed sudo_without_sh - #305
+  * added warning if no perl interpreter was found on the remote system - #302
+
+2014-02-02 Jan Gehring <jan.gehring, gmail.com> (0.44.1)
+  * fixed detection of openSUSE with lsb-release installed - #297
+  * use Makefile.PL for tests. fixed #300
+  * Support for DBI \%attr hashref - #296 - stefb69
+  * Make quiet mode not mute warnings and errors. - #294 - slashbeast
+  * new cli parameter -qw for quiet with warnings - #294
+
+2014-01-25 Jan Gehring <jan.gehring, gmail.com> (0.44.0)
+  * docker support (experimental) - #278 - chenryn
+  * format the output of say() - #155
+  * userdefined columns for ps() command - #175 - dirkcjelli
+  * using tilde (~) sign for directories - #198 - gnouc, krimdomu
+  * SCM::Git, now uses cwd option of run() command, so it works also remote. - #211 - atrodo
+  * Box default pkg update - #217 - endyman
+  * run_batch() command to run batches on demand - #222 - jorisd
+  * Allow "sed" function to work on multiple lines. - #227 - davidolrik, krimdomu
+  * Added bulk_install() method for packages installing - #229 - jorisd
+  * Enable bulk_install for Gentoo and OpenWrt - #231 - ferki
+  * Added some hooks at central points in rex, so that it is possible to control the behaviour of rex in some points.
+  * added on_change hook for sync_up/sync_down - #232
+  * Rex::Group::Lookup::Command - read hostnames from a command. - #233 - fanyeren
+  * Improve user and group management on OpenWrt - #242 - ferki
+  * Add kernel module (un)loading support for OpenWrt - #243 - ferki
+  * Add service status support for OpenWrt - #246 - ferki
+  * make ssh read buffer configurable (for Net::SSH2 connections) - #247 this will speedup the connection, but may break on older systems!
+  * Add systemd service provider support for Gentoo - #250 - ferki
+  * Add systemd service provider support for Mageia - #282
+  * feature flag to deactivate path cleanup - #261
+  * feature flag to parse $HOME/.profile - #262
+  * Cloud::Amazon Check to make sure it is HASH before key look up - #263 - oneness
+  * autodie feature if run() fail - #265
+  * added support for tcsh shell - #284
+  * Fix guestinfo for Gentoo - #236 - ferki
+  * get_host can't find aliases - #239, #240 - jorisd, ferki
+  * rsync get wrong user if using "auth for $task" - #252
+  * Flag existing feature sudo_without_sh as found - #253 - gittex
+  * Cleaned-Up Data module dependence - #254
+  * iptables arguments needs quote if they are whitespaced - #257 - jorisd
+  * add Pod encoding marker - #259 - sergeyromanov
+  * "needs" doesn't know how to call tasks from the main Rexfile - #260
+  * gathering alias network interfaces like eth0:0 - #264
+  * Cron: Jobs can be duplicated - #269 - jorisd
+  * FreeBSD: store netmask in dotted decimal format - #287 - andrejzverev
+  * Uninitialized value in OpenSSH.pm - #290 - samuelet
+
+2013-10-03 Jan Gehring <jan.gehring, gmail.com> (0.43.7)
+  * fixed problem with unconfigured network devices
+  * fixed return of complete cmdb
+  * fixed bug with the reporting initialization
+
+2013-09-17 Jan Gehring <jan.gehring, gmail.com> (0.43.3)
+  * fixed return of string '0' on stdout
+  * fixed loading of report via env variable
+  * fixed manifest
+
+2013-09-17 Jan Gehring <jan.gehring, gmail.com> (0.43.2)
+  * #234 - Silent yum operations - Chris Steigmeier
+
+2013-09-16 Jan Gehring <jan.gehring, gmail.com> (0.43.0)
+  * #223 - generating reports of changed things on the remote system (report infrastructure)
+  * #220 - atomic uploads
+  * #219 - df function doesnt parse errors - jorisd
+  * #218 - problems with escaping of special characters, reverted back to old behaviour (pre 0.42)
+  * #215 - input validation for rexify to prevent creation of invalid module names
+  * #214 - yum operations should be silent
+  * #213, #231 - rexify to use proxy settings - Chris Steigmeier
+  * #231 - Another Red Hat Enterprise flavor - Chris Steigmeier
+  * #200 - Refactor OpenWrt user module - Ferenc Erki
+  * #195 - Fix a typo in example code - Boris Däppen
+  * #194 - Prefer ip command over ifconfig - Ferenc Erki
+  * #189 - Zero values in crontab fields - Ferenc Erki
+  * #186 - Turn "eval your Rexfile" into a debug message - Anders Ossowicki
+  * #210 - zypper --no-gpg-checks option
+  * #208 - Cache inventory of servers for faster execution
+  * #206 - sync_up function doesn't work in modules.
+  * #196 - Support port with ranged hostnamed
+  * #180 - support of other shells than bash for the PATH / environment variable - Cuong Manh Le
+  * #177 - if a feature can't be satisfied, die()
+  * #166 - tmp directory now configurable
+
+2013-07-04 Jan Gehring <jan.gehring, gmail.com> (0.42.4)
+  * fixed an issue with append_if_no_such_line when searching for a string
+    containing a quote.
+
+2013-06-29 Jan Gehring <jan.gehring, gmail.com> (0.42.3)
+  * #189 fixed zero values in crontab - ferki
+  * fixed ownership problem with sudo mode and file manipulation
+
+2013-06-23 Jan Gehring <jan.gehring, gmail.com> (0.42.2)
+  * fixed local run of run_with helper command
+
+2013-06-22 Jan Gehring <jan.gehring, gmail.com> (0.42.1)
+  * #178 - no_ssh option doesn't work with OpenSSH connection
+  * #181 - ssh ports doesn't work with Net::OpenSSH
+  * #182 - addition parameters doesn't work for ini files
+  * #183 - fqdn doesn't work in ini files
+  * #184 - hostname evaluation and additional parameters doesn't work together
+
+2013-06-15 Jan Gehring <jan.gehring, gmail.com> (0.42.0)
+  * added Net::OpenSSH support - chenryn, jfried
+  * custom user for sudo command
+  * new function: delete_lines_according_to
+  * new feature flag use_server_auth
+  * improved ini file parsing
+  * support for custom server parameters
+  * cwd option for run command
+  * speed improvements: #123, #133, #135, #136, #137, #143 - liedekef
+  * removed blastwave package capabilities from solaris, because blastwave doesn't exists anymore
+  * #129 - removed an unnecessary opendir call - liedekef
+  * #148 - use equery for Rex::Pkg::Gentoo in get_installed, later replaced by #165 - tianon
+  * #149 - updated most of Rsync with server-specific auth - tianon
+  * #159 - don't execute a task if the defined group doesn't contain servers. There is a feature flag to disable this behavior (empty_groups)
+  * #163 - Rex::Pkg::Gentoo: Fix separator character between package name and version
+  * #165 - Rex::Pkg::Gentoo: Replace get_installed checking method
+
+2013-05-03 Jan Gehring <jan.gehring, gmail.com> (0.41.3)
+  * fixed using -c flag with Rex::Box - #160
+  * fixed parsing ssh/config file - #158
+  * get_box() : better error message - #157
+  * fixed PATH variable for run() with multiple commands - #156
+
+2013-04-19 Jan Gehring <jan.gehring, gmail.com> (0.41.2)
+  * fixed exit status code for some situations where it fails
+  * fixed rexify --use=module command
+  * fixinig 'unititialized value' output of inspect() function. returning now 'no value'. - #152
+  * added check if template result is empty. if so - die() - #152
+  * fixing problem with invalid variable names in templates - #152
+
+2013-03-30 Jan Gehring <jan.gehring, gmail.com> (0.41.1)
+  * fixed a parsing bug in df output
+  * fixed mount command with persistend option
+
+2013-03-30 Jan Gehring <jan.gehring, gmail.com> (0.41.0)
+  * Function to get the last output of a command that uses run() #104
+  * Refactores Cron module, added environment variable support to cron
+  * New sync module
+  * added Hardware::VirtInfo module #119 - Franky Van Liedekerke
+  * new keyword "case"
+  * Refactored net_ssh2_exec() function - Peter H. Ezetta
+  * Refactored local command execution to use IPC::Open3
+  * Changed the Debian is_installed function to use the more accurate 
+    get_installed function. - Samuele Tognini
+  * '-t' option should work with '-e' option. rex -t 2 -H "hostA hostB" 
+     -e 'run "sleep 10"; say run "uptime"' should run in parallel. 
+     - Tokuhiro Matsuno
+  * Fixed loading of modules in $HOME/.rex/recipes
+  * Don't calculate md5 sums if there is no on_change hook for file() function - Franky Van Liedekerke
+  * Better understandable error messages for authentication - Franky Van Liedekerke
+  * Cloud/Amazon: support multiple security groups - RenatoCRON
+  * Fix Pod about pubkey authentication - Joris
+  * Rex/Gearman: Fixed get_exit_codes use flag
+  * Rex/Boxes: Creation order of VMs can now be defined in YAML file
+
+2013-03-10 Jan Gehring <jan.gehring, gmail.com> (0.40.4)
+  * fixed get_box() command if task is run on a remote host
+  * fixed sudo without password
+
+2013-03-09 Jan Gehring <jan.gehring, gmail.com> (0.40.3)
+  * fixed loading of files in lib directory
+    @INC sometime got populated too late
+
+2013-03-02 Jan Gehring <jan.gehring, gmail.com> (0.40.2)
+  * fixed #117 - encode everything except a-z, 0-9 and _
+
+2013-02-27 Jan Gehring <jan.gehring, gmail.com> (0.40.1)
+  * fixed #114 - used only once warnings
+  * fixed #115 - passwordless sudo didn't work
+
+2013-02-23 Jan Gehring <jan.gehring, gmail.com> (0.40.0)
+  * fixed bug and refactored file path calculation #103 and #102
+  * added ini style groups #99 - Franky Van Liedekerke
+  * VirtualBox Headless mode #105
+  * added default environment "default"
+  * basic cmdb via YAML #107
+  * crypt sudo password
+  * sudo without locales and password #98 - Dominik Schulz
+  * fixed dmidecode on openbsd
+  * export update_system sub - Ferenc Erki
+  * fixing regex which gets name interfaces - Fran Rodriguez
+
+2013-02-07 Jan Gehring <jan.gehring, gmail.com> (0.39.0)
+  * don't need PERL5LIB env any more, fixed bug #95
+  * match comments better - Naveed Massjouni
+  * more allowed characters in lvname - Samuele Tognini
+  * new feature flag: exit_status - rex will now return a number higher than 0
+    if a task execution fails.
+  * new function: is_installed - Daniel Baeurer
+  * optimized lookup_file function - Franky Van Liedekerke
+  * rexify command now allows usage of private module server
+
 2013-01-27 Jan Gehring <jan.gehring, gmail.com> (0.38.0)
   * added security groups to amazon cloud - Jonathan Delgado
   * updated pod documentation - jorisd

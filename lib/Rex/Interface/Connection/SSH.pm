@@ -28,6 +28,8 @@ sub connect {
 
    my ($user, $pass, $private_key, $public_key, $server, $port, $timeout, $auth_type, $is_sudo);
 
+   Rex::Logger::debug("Using Net::SSH2 for connection");
+
    $user    = $option{user};
    $pass    = $option{password};
    $server  = $option{server};
@@ -82,6 +84,13 @@ sub connect {
    if($auth_type && $auth_type eq "pass") {
       Rex::Logger::debug("Using password authentication.");
       $self->{auth_ret} = $self->{ssh}->auth_password($user, $pass);
+      if(! $self->{auth_ret}) {
+         # try guessing
+         $self->{auth_ret} = $self->{ssh}->auth(
+                                'username' => $user,
+                                'password' => $pass);
+
+      }
    }
    elsif($auth_type && $auth_type eq "key") {
       Rex::Logger::debug("Using key authentication.");
@@ -126,6 +135,11 @@ sub get_connection_object {
 
 sub get_fs_connection_object {
    my ($self) = @_;
+   if(! defined $self->{sftp}) {
+      Rex::Logger::info("It seems that you haven't installed or configured sftp on your server.", "warn");
+      Rex::Logger::info("Rex needs sftp for file operations, so please install one.", "warn");
+      die("No SFTP server found on remote host.");
+   }
    return $self->{sftp};
 }
 

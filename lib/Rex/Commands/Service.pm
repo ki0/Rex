@@ -51,6 +51,7 @@ use base qw(Rex::Exporter);
 use Rex::Service;
 use Rex::Logger;
 use Rex::Config;
+use Rex::Hook;
 
 @EXPORT = qw(service service_provider_for);
 
@@ -109,6 +110,26 @@ The service function accepts 2 parameters. The first is the service name and the
     service apache2 => "ensure", "stopped";
  };
 
+
+This function supports the following hooks:
+
+=over 8
+
+
+=item before_I<action>
+
+For example: before_start, before_stop, before_restart
+
+This gets executed right before the service action.
+
+=item after_I<action>
+
+For example: after_start, after_stop, after_restart
+
+This gets executed right after the service action.
+
+=back
+
 =back
 
 =cut
@@ -133,89 +154,126 @@ sub service {
 
    my $srvc = Rex::Service->get;
 
+   my $changed = 0;
+   my $return = 1;
    for my $service (@$services) {
+
+      #### check and run before_$action hook
+      Rex::Hook::run_hook(service => "before_$action", @_);
+      ##############################
+
+
       if($action eq "start") {
 
          unless($srvc->status($service)) {
+            $changed = 1;
             if($srvc->start($service)) {
                Rex::Logger::info("Service $service started.");
-               return 1 if ! $is_multiple;
+               $return = 1 if ! $is_multiple;
             }
             else {
                Rex::Logger::info("Error starting $service.", "warn");
-               return 0 if ! $is_multiple;
+               $return = 0 if ! $is_multiple;
             }
          }
 
       }
 
       elsif($action eq "restart") {
+         $changed = 1;
 
          if($srvc->restart($service)) {
             Rex::Logger::info("Service $service restarted.");
-            return 1 if ! $is_multiple;
+            $return = 1 if ! $is_multiple;
          }
          else {
             Rex::Logger::info("Error restarting $service.", "warn");
-            return 0 if ! $is_multiple;
+            $return = 0 if ! $is_multiple;
          }
 
       }
 
       elsif($action eq "stop") {
 
-         if($srvc->stop($service)) {
-            Rex::Logger::info("Service $service stopped.");
-            return 1 if ! $is_multiple;
-         }
-         else {
-            Rex::Logger::info("Error stopping $service.", "warn");
-            return 0 if ! $is_multiple;
+         if($srvc->status($service)) { # it runs
+            $changed = 1;
+            if($srvc->stop($service)) {
+               Rex::Logger::info("Service $service stopped.");
+               $return = 1 if ! $is_multiple;
+            }
+            else {
+               Rex::Logger::info("Error stopping $service.", "warn");
+               $return = 0 if ! $is_multiple;
+            }
          }
 
       }
 
       elsif($action eq "reload") {
-
+         $changed = 1;
          if($srvc->reload($service)) {
             Rex::Logger::info("Service $service is reloaded.");
-            return 1 if ! $is_multiple;
+            $return = 1 if ! $is_multiple;
          }
          else {
             Rex::Logger::info("Error $service does not support reload", "warn");
-            return 0 if ! $is_multiple;
+            $return = 0 if ! $is_multiple;
          }
 
       }
 
       elsif($action eq "status") {
 
+         $changed = 100;
          if($srvc->status($service)) {
             Rex::Logger::info("Service $service is running.");
-            return 1 if ! $is_multiple;
+            $return = 1 if ! $is_multiple;
          }
          else {
             Rex::Logger::info("$service is stopped");
-            return 0 if ! $is_multiple;
+            $return = 0 if ! $is_multiple;
          }
 
       }
 
       elsif($action eq "ensure") {
 
-         $srvc->ensure($service, $options);
-
+         if($srvc->ensure($service, $options)) {
+            $changed = 0;
+            $return = 1 if ! $is_multiple;
+         }
+         else {
+            $return = 0 if ! $is_multiple;
+            Rex::Logger::info("Error ensuring $service to $options");
+         }
       }
 
       else {
-      
          Rex::Logger::info("Execution action $action on $service.");
          $srvc->action($service, $action);
-
+         $changed = 100;
       }
+
+      #### check and run after_$action hook
+      Rex::Hook::run_hook(service => "after_$action", @_, {changed => $changed, ret => $return});
+      ##############################
 
    }
 
+   if(Rex::Config->get_do_reporting) {
+      if($changed == 100) {
+         return {
+            skip => 1,
+            ret  => $return,
+         };
+      }
+      return {
+         changed => $changed,
+         ret     => $return,
+      };
+   }
+
+   return $return;
 }
 
 =item service_provider_for $os => $type;

@@ -41,7 +41,7 @@ sub ln {
 
    Rex::Logger::debug("Symlinking files: $to -> $from");
    my $exec = Rex::Interface::Exec->create;
-   $exec->exec("ln -snf $from $to");
+   $exec->exec("ln -snf '$from' '$to'");
 
    if($? == 0) { return 1; }
 }
@@ -49,6 +49,8 @@ sub ln {
 
 sub rmdir {
    my ($self, @dirs) = @_;
+
+   @dirs = $self->_normalize_path(@dirs);
 
    Rex::Logger::debug("Removing directories: " . join(", ", @dirs));
    my $exec = Rex::Interface::Exec->create;
@@ -59,8 +61,8 @@ sub rmdir {
 
 sub chown {
    my ($self, $user, $file, @opts) = @_;
-
    my $options = { @opts };
+   ($file) = $self->_normalize_path($file);
 
    my $recursive = "";
    if(exists $options->{"recursive"} && $options->{"recursive"} == 1) {
@@ -76,6 +78,7 @@ sub chown {
 sub chgrp {
    my ($self, $group, $file, @opts) = @_;
    my $options = { @opts };
+   ($file) = $self->_normalize_path($file);
 
    my $recursive = "";
    if(exists $options->{"recursive"} && $options->{"recursive"} == 1) {
@@ -91,6 +94,7 @@ sub chgrp {
 sub chmod {
    my ($self, $mode, $file, @opts) = @_;
    my $options = { @opts };
+   ($file) = $self->_normalize_path($file);
 
    my $recursive = "";
    if(exists $options->{"recursive"} && $options->{"recursive"} == 1) {
@@ -105,11 +109,23 @@ sub chmod {
 
 sub cp {
    my ($self, $source, $dest) = @_;
+   ($source) = $self->_normalize_path($source);
+   ($dest)   = $self->_normalize_path($dest);
 
    my $exec = Rex::Interface::Exec->create;
    $exec->exec("cp -R $source $dest");
 
    if($? == 0) { return 1; }
+}
+
+sub _normalize_path {
+   my ($self, @dirs) = @_;
+
+   for(@dirs) {
+      s/ /\\ /g;
+   }
+
+   return @dirs;
 }
 
 1;

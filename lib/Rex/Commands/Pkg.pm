@@ -43,6 +43,8 @@ use Rex::Commands::MD5;
 use Rex::Commands::Upload;
 use Rex::Commands::Run;
 use Rex::Config;
+use Rex::Commands;
+use Rex::Hook;
 
 use Data::Dumper;
 use Digest::MD5;
@@ -52,7 +54,7 @@ require Rex::Exporter;
 use base qw(Rex::Exporter);
 use vars qw(@EXPORT);
 
-@EXPORT = qw(install update remove installed_packages update_package_db repository package_provider_for);
+@EXPORT = qw(install update remove update_system installed_packages is_installed update_package_db repository package_provider_for);
 
 =item install($type, $data, $options)
 
@@ -120,6 +122,28 @@ This is deprecated since 0.9. Please use L<File> I<file> instead.
 
 =back
 
+This function supports the following hooks:
+
+=over 8 
+
+=item before
+
+This gets executed before everything is done. The return value of this hook overwrite the original parameters of the function-call.
+
+=item before_change
+
+This gets executed right before the new package is installed. This hook is only available for package installations. If you need file hooks, you have to use the file() function.
+
+=item after_change
+
+This gets executed right after the new package was installed. This hook is only available for package installations. If you need file hooks, you have to use the file() function.
+
+=item after
+
+This gets executed right before the install() function returns.
+
+=back
+
 =cut
 
 sub install {
@@ -128,9 +152,24 @@ sub install {
       return "install";
    }
 
+   #### check and run before hook
+   my @orig_params = @_;
+   eval {
+      my @new_args = Rex::Hook::run_hook(install => "before", @_);
+      if(@new_args) {
+         @_ = @new_args;
+      }
+      1;
+   } or do {
+      die("Before-Hook failed. Canceling install() action: $@");
+   };
+   ##############################
+
+
    my $type = shift;
    my $package = shift;
    my $option;
+   my $__ret;
 
    if($type eq "file") {
 
@@ -148,6 +187,7 @@ sub install {
       my $source    = $option->{"source"};
       my $need_md5  = ($option->{"on_change"} ? 1 : 0);
       my $on_change = $option->{"on_change"} || sub {};
+      my $__ret;
 
       my ($new_md5, $old_md5) = ("", "");
       
@@ -180,6 +220,7 @@ sub install {
       }
       else {
          
+         my $source = Rex::Helper::Path::get_file_path($source, caller());
          my $content = eval { local(@ARGV, $/) = ($source); <>; };
 
          my $local_md5 = "";
@@ -192,7 +233,9 @@ sub install {
                chomp $old_md5;
             };
 
-            $local_md5 = eval { local(@ARGV) = ($source); return Digest::MD5::md5_hex(<>); };
+            LOCAL {
+               $local_md5 = md5($source);
+            };
 
             unless($local_md5 eq $old_md5) {
                Rex::Logger::debug("MD5 is different $local_md5 -> $old_md5 (uploading)");
@@ -237,6 +280,7 @@ sub install {
 
    elsif($type eq "package") {
       
+
       if(ref($_[0]) eq "HASH") {
          $option = shift;
       }
@@ -251,20 +295,61 @@ sub install {
       if(!ref($package)) {
          $package = [$package];
       }
-
-      for my $pkg_to_install (@{$package}) {
+      
+      my $changed = 0;
+      
+      # if we're being asked to install a single package
+      if(@{$package} == 1) {
+         my $pkg_to_install = shift @{$package};
          unless($pkg->is_installed($pkg_to_install)) {
             Rex::Logger::info("Installing $pkg_to_install.");
-            $pkg->install($pkg_to_install, $option);
-         }
-      }
-     
 
+            #### check and run before_change hook
+            Rex::Hook::run_hook(install => "before_change", @orig_params);
+            ##############################
+
+            $pkg->install($pkg_to_install, $option);
+            $changed = 1;
+
+            #### check and run after_change hook
+            Rex::Hook::run_hook(install => "after_change", @orig_params, {changed => $changed});
+            ##############################
+         }
+      } else {
+         my @pkgCandidates;
+         for my $pkg_to_install (@{$package}) {
+            unless($pkg->is_installed($pkg_to_install)) {
+               push @pkgCandidates, $pkg_to_install;
+            }
+         }
+         
+         if(@pkgCandidates) {
+            Rex::Logger::info("Installing @pkgCandidates");
+            $pkg->bulk_install(\@pkgCandidates, $option); # here, i think $option is useless in its current form.
+            $changed = 1;
+         } 
+      }
+         
+     
+      if(Rex::Config->get_do_reporting) {
+         $__ret = {changed => $changed};
+      }
+ 
    }
    else {
       # unknown type, be a package
       install("package", $type, $package, @_); 
+
+      if(Rex::Config->get_do_reporting) {
+         $__ret = {skip => 1};
+      }
    }
+
+   #### check and run after hook
+   Rex::Hook::run_hook(install => "after", @orig_params, $__ret);
+   ##############################
+
+   return $__ret;
 
 }
 
@@ -379,6 +464,27 @@ sub installed_packages {
    return $pkg->get_installed;
 }
 
+=item is_installed
+
+This function tests if $package is installed. Returns 1 if true. 0 if false. 
+
+ task "isinstalled", "server01", sub {
+    if( is_installed("rex") ) {
+       say "Rex is installed";
+    }
+    else {
+       say "Rex is not installed";
+    }
+ };
+
+=cut
+
+sub is_installed {
+   my $package = shift;
+   my $pkg = Rex::Pkg->get;
+   return $pkg->is_installed($package);
+}
+
 =item update_package_db
 
 This function updates the local package database. For example, on CentOS it will execute I<yum makecache>.
@@ -482,16 +588,19 @@ sub repository {
 
    $data{"name"} = $name;
 
+   my $ret;
    if($action eq "add") {
-      $pkg->add_repository(%data);
+      $ret = $pkg->add_repository(%data);
    }
    elsif($action eq "remove" || $action eq "delete") {
-      $pkg->rm_repository($name);
+      $ret = $pkg->rm_repository($name);
    }
 
    if(exists $data{after}) {
       $data{after}->();
    }
+
+   return $ret;
 }
 
 =item package_provider_for $os => $type;

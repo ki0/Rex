@@ -10,6 +10,7 @@ use strict;
 use warnings;
 
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 use Rex::Commands::File;
 use Rex::Pkg::Base;
 use base qw(Rex::Pkg::Base);
@@ -52,16 +53,26 @@ sub install {
    return 1;
 }
 
+sub bulk_install {
+   my ($self, $packages_aref, $option) = @_;
+   
+   delete $option->{version}; # makes no sense to specify the same version for several packages
+    
+   $self->update("@{$packages_aref}", $option);
+   
+   return 1;
+}
+
 sub update {
    my ($self, $pkg, $option) = @_;
 
    my $version = $option->{'version'} || '';
    if($version) {
-      $pkg = "=$pkg=$version";
+      $pkg = "=$pkg-$version";
    }
 
    Rex::Logger::debug("Installing $pkg / $version");
-   my $f = run("emerge $pkg");
+   my $f = i_run("emerge $pkg");
 
    unless($? == 0) {
       Rex::Logger::info("Error installing $pkg.", "warn");
@@ -78,7 +89,7 @@ sub remove {
    my ($self, $pkg) = @_;
 
    Rex::Logger::debug("Removing $pkg");
-   my $f = run("emerge -C $pkg");
+   my $f = i_run("emerge -C $pkg");
 
    unless($? == 0) {
       Rex::Logger::info("Error removing $pkg.", "warn");
@@ -103,7 +114,8 @@ sub get_installed {
       '((?:-r\d+)?)$';                            # revision, eg r12
 
    my @ret;
-   for my $line (run("epm -qa")) {
+
+   for my $line (i_run("ls -d /var/db/pkg/*/* | cut -d '/' -f6-")) {
       my $r = qr{$pkgregex};
       my ($name, $version, $suffix, $revision) = ($line =~ $r);
       push(@ret, {
@@ -119,13 +131,13 @@ sub get_installed {
 
 sub update_system {
    my ($self) = @_;
-   run "emerge --update --deep --with-bdeps=y --newuse world";
+   i_run "emerge --update --deep --with-bdeps=y --newuse world";
 }
 
 sub update_pkg_db {
    my ($self) = @_;
 
-   run "emerge --sync";
+   i_run "emerge --sync";
    if($? != 0) {
       die("Error updating package database");
    }
@@ -137,7 +149,7 @@ sub add_repository {
    my $name = $data{"name"};
 
    if(can_run("layman")) {
-      run "layman -a $name";
+      i_run "layman -a $name";
    }
    else {
       Rex::Logger::debug("You have to install layman, git and subversion.");
@@ -149,7 +161,7 @@ sub rm_repository {
    my ($self, $name) = @_;
 
    if(can_run("layman")) {
-      run "layman -d $name";
+      i_run "layman -d $name";
    }
    else {
       Rex::Logger::debug("You have to install layman, git and subversion.");

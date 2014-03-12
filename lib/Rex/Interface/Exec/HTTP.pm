@@ -21,9 +21,13 @@ sub new {
 }
 
 sub exec {
-   my ($self, $cmd, $path) = @_;
+   my ($self, $cmd, $path, $option) = @_;
 
    Rex::Logger::debug("Executing: $cmd");
+
+   if(exists $option->{path}) {
+      $path = $option->{path};
+   }
 
    if($path) { $path = "PATH=$path" }
    $path ||= "";
@@ -33,7 +37,13 @@ sub exec {
    #$cmd = "LC_ALL=C $path " . $cmd;
 
    Rex::Commands::profiler()->start("exec: $cmd");
-   my $resp = connection->post("/execute", {exec => $cmd});
+
+   my $new_cmd = $cmd;
+   if(Rex::Config->get_source_global_profile) {
+      $new_cmd = ". /etc/profile >/dev/null 2>&1; $new_cmd";
+   }
+
+   my $resp = connection->post("/execute", {exec => $new_cmd, options => $option});
    Rex::Commands::profiler()->end("exec: $cmd");
 
    if($resp->{ok}) {

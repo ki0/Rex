@@ -11,6 +11,7 @@ use warnings;
 
 use Rex;
 use Rex::Commands::Run;
+use Rex::Helper::Run;
 use Rex::Commands::Fs;
 use Rex::Commands::File;
 use Rex::Logger;
@@ -21,55 +22,62 @@ require Rex::Hardware;
 
 sub get {
 
-   if(my $ret = Rex::Hardware->cache("Host")) {
-      return $ret;
+   my $cache = Rex::get_cache();
+   my $cache_key_name = $cache->gen_key_name("hardware.host");
+
+   if($cache->valid($cache_key_name)) {
+      return $cache->get($cache_key_name);
    }
 
    if(Rex::is_ssh || $^O !~ m/^MSWin/i) {
 
-      my $dmi = Rex::get_cache()->can_run("dmidecode");
-
-      unless($dmi) {
-         Rex::Logger::debug("Please install dmidecode on the target system.");
-      }
-
       my $bios = Rex::Inventory::Bios::get();
 
-      my $os = Rex::get_cache()->call_sub("Rex::Hardware::Host", "get_operating_system");
+      my $os = get_operating_system();
 
       my ($domain, $hostname);
       if($os eq "Windows") {
-         ($hostname) = grep { $_=$1 if /^COMPUTERNAME=(.*)$/ } split(/\r?\n/, Rex::get_cache()->run("env"));
-         ($domain)   = grep { $_=$1 if /^USERDOMAIN=(.*)$/ } split(/\r?\n/, Rex::get_cache()->run("env"));
+         my @env = i_run("env");
+         ($hostname) = grep { $_=$1 if /^COMPUTERNAME=(.*)$/ } split(/\r?\n/, @env);
+         ($domain)   = grep { $_=$1 if /^USERDOMAIN=(.*)$/ } split(/\r?\n/, @env);
       }
-      elsif($os eq "NetBSD" || $os eq "OpenBSD") {
-         ($hostname) = grep { $_=$1 if /^([^\.]+)\.(.*)$/ } Rex::get_cache()->run("LC_ALL=C hostname");
-         ($domain) = grep { $_=$2 if /^([^\.]+)\.(.*)$/ } Rex::get_cache()->run("LC_ALL=C hostname");
+      elsif($os eq "NetBSD" || $os eq "OpenBSD" || $os eq 'FreeBSD') {
+	 ($hostname, $domain) =  split(/\./, i_run("hostname") , 2);
       }
       elsif($os eq "SunOS") {
-         ($hostname) = grep { $_=$1 if /^([^\.]+)$/ } Rex::get_cache()->run("LC_ALL=C hostname");
-         ($domain) = run("LC_ALL=C domainname");
+         ($hostname) = grep { $_=$1 if /^([^\.]+)$/ } i_run("hostname");
+         ($domain) = i_run("domainname");
+      }
+      elsif($os eq "OpenWrt") {
+         ($hostname) = i_run("uname -n");
+         ($domain) = i_run("cat /proc/sys/kernel/domainname");
       }
       else {
-         ($hostname) = grep { $_=$1 if /^([^\.]+)\.(.*)$/ } Rex::get_cache()->run("LC_ALL=C hostname -f 2>/dev/null");
-         ($domain) = grep { $_=$2 if /^([^\.]+)\.(.*)$/ } Rex::get_cache()->run("LC_ALL=C hostname -f 2>/dev/null");
+         my @out = i_run("hostname -f 2>/dev/null");
+	 ($hostname, $domain) =  split(/\./, i_run("hostname -f 2>/dev/null") , 2);
 
          if(! $hostname || $hostname eq "") {
             Rex::Logger::debug("Error getting hostname and domainname. There is something wrong with your /etc/hosts file.");
-            $hostname = Rex::get_cache()->run("LC_ALL=C hostname");
+            $hostname = i_run("hostname");
          }
       }
 
-      return {
+      my $data = {
       
          manufacturer => $bios->get_system_information()->get_manufacturer() || "",
          hostname     => $hostname || "",
          domain       => $domain || "",
          operatingsystem => $os || "",
-         operatingsystemrelease => Rex::get_cache()->call_sub("Rex::Hardware::Host", "get_operating_system_version") || "",
-         kernelname => [ run "uname -s" ]->[0],
+         operating_system => $os || "",
+         operatingsystemrelease => get_operating_system_version(),
+         operating_system_release => get_operating_system_version(),
+         kernelname => [ i_run "uname -s" ]->[0],
 
       };
+
+      $cache->set($cache_key_name, $data);
+
+      return $data;
 
    }
    else {
@@ -82,12 +90,20 @@ sub get {
 
 sub get_operating_system {
 
+   my $cache = Rex::get_cache();
+   if($cache->valid("hardware.host")) {
+      my $host_cache = $cache->get("hardware.host");
+      if(exists $host_cache->{operatingsystem}) {
+         return $host_cache->{operatingsystem};
+      }
+   }
+
    # use lsb_release if available
-   my $is_lsb = Rex::get_cache()->can_run("lsb_release");
+   my $is_lsb = can_run("lsb_release");
 
    if($is_lsb) {
-      if(my $ret = run "lsb_release -s -i") {
-         if($ret eq "SUSE LINUX") {
+      if(my $ret = i_run "lsb_release -s -i") {
+         if($ret eq "SUSE LINUX" || $ret eq "openSUSE project") {
             $ret = "SuSE";
          }
          return $ret;
@@ -109,6 +125,10 @@ sub get_operating_system {
 
    if(is_file("/etc/mageia-release")) {
       return "Mageia";
+   }
+
+   if(is_file("/etc/fedora-release")) {
+      return "Fedora";
    }
 
    if(is_file("/etc/gentoo-release")) {
@@ -136,7 +156,11 @@ sub get_operating_system {
       }
    }
 
-   my $os_string = Rex::get_cache()->run("uname -s");
+   if(is_file("/etc/openwrt_release")) {
+      return "OpenWrt";
+   }
+
+   my $os_string = i_run("uname -s");
    return $os_string;   # return the plain os
 
 
@@ -144,14 +168,22 @@ sub get_operating_system {
 
 sub get_operating_system_version {
    
-   my $op = Rex::get_cache()->call_sub("Rex::Hardware::Host", "get_operating_system");
+   my $cache = Rex::get_cache();
+   if($cache->valid("hardware.host")) {
+      my $host_cache = $cache->get("hardware.host");
+      if(exists $host_cache->{operatingsystemrelease}) {
+         return $host_cache->{operatingsystemrelease};
+      }
+   }
 
-   my $is_lsb = Rex::get_cache()->can_run("lsb_release");
+   my $op = get_operating_system();
+
+   my $is_lsb = can_run("lsb_release");
 
    # use lsb_release if available
    if($is_lsb) {
-      if(my $ret = run "lsb_release -r -s") {
-         my $os_check = run "lsb_release -d";
+      if(my $ret = i_run "lsb_release -r -s") {
+         my $os_check = i_run "lsb_release -d";
          unless($os_check =~ m/SUSE\sLinux\sEnterprise\sServer/) {
             return $ret;
          }
@@ -170,12 +202,13 @@ sub get_operating_system_version {
 
    }
    elsif($op eq "Ubuntu") {
-      my @l = run "lsb_release -r -s";
+      my @l = i_run "lsb_release -r -s";
       return $l[0];
    }
    elsif(lc($op) eq "redhat" 
             or lc($op) eq "centos"
-            or lc($op) eq "scientific") {
+            or lc($op) eq "scientific"
+            or lc($op) eq "fedora") {
 
       my $fh = file_read("/etc/redhat-release");
       my $content = $fh->read_all;
@@ -244,11 +277,20 @@ sub get_operating_system_version {
 
    }
    elsif($op =~ /BSD/) {
-      my ($version) = grep { $_=$1 if /(\d+\.\d+)/ } run "uname -r";
+      my ($version) = grep { $_=$1 if /(\d+\.\d+)/ } i_run "uname -r";
       return $version;
    }
+   elsif($op eq "OpenWrt") {
+      my $fh = file_read("/etc/openwrt_version");
+      my $content = $fh->read_all;
+      $fh->close;
 
-   return [ Rex::get_cache()->run("uname -r") ]->[0];
+      chomp $content;
+
+      return $content;
+   }
+
+   return [ i_run("uname -r") ]->[0];
 
 }
 

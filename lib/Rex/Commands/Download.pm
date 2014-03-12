@@ -67,6 +67,7 @@ use vars qw(@EXPORT);
 use base qw(Rex::Exporter);
 
 use Rex::Commands::Fs;
+use Rex::Helper::Path;
 use Rex::Interface::Fs;
 use File::Basename qw(basename);
 
@@ -89,6 +90,9 @@ Perform a download. If no local file is specified it will download the file to t
 sub download {
    my $remote = shift;
    my $local = shift;
+
+   $remote = resolv_path($remote);
+   $local  = resolv_path($local, 1);
 
    if($remote =~ m/^(https?|ftp):\/\//) {
       _http_download($remote, $local);
@@ -138,6 +142,11 @@ sub _http_download {
    Rex::Logger::debug("saving file to $local");
 
    my $content = _get_http($remote);
+
+   if(-d $local) {
+      $local = $local . '/' . basename($remote);
+   }
+
    open(my $fh, ">", $local) or die($!);
    binmode $fh;
    print $fh $content;

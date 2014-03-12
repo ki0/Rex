@@ -15,6 +15,8 @@ use Rex::Task;
 use Rex::Config;
 use Rex::Interface::Executor;
 use Rex::Fork::Manager;
+use Rex::Report;
+use Time::HiRes qw(time);
 
 sub new {
    my $that = shift;
@@ -80,13 +82,21 @@ sub create_task {
     
             for my $group (@{$groups}) {
                if(Rex::Group->is_group($group)) {
-                  push(@server, Rex::Group->get_group($group));
+                  my @group_server = Rex::Group->get_group($group);
+                  # check if the group is empty. this is mostly due to a failure.
+                  # so report it, and exit.
+                  if(scalar @group_server == 0 && Rex::Config->get_allow_empty_groups() == 0) {
+                     Rex::Logger::info("The group $group is empty. This is mostly due to a failure.", "warn");
+                     Rex::Logger::info("If this is an expected behaviour, please add the feature flag 'empty_groups'.", "warn");
+                     CORE::exit(1);
+                  }
+                  push(@server, @group_server);
                }
             }
          }
          else {
             for my $entry (@_) {
-               push(@server, Rex::Group::Entry::Server->new(name => $entry));
+               push(@server, (ref($entry) eq "Rex::Group::Entry" ? $entry : Rex::Group::Entry::Server->new(name => $entry)));
             }
          }
       }
@@ -99,6 +109,7 @@ sub create_task {
       desc => $desc,
       no_ssh => ($options->{"no_ssh"}?1:0),
       hidden => ($options->{"dont_register"}?1:0),
+      exit_on_connect_fail => (exists $options->{exit_on_connect_fail}?$options->{exit_on_connect_fail}:1),
       before => [],
       after  => [],
       around => [],
@@ -174,7 +185,6 @@ sub run {
 
    $option{params} ||= { Rex::Args->get };
 
-
    my @all_server = @{ $task->server };
 
    my $fm = Rex::Fork::Manager->new(max => $task->parallelism || Rex::Config->get_parallelism);
@@ -193,7 +203,7 @@ sub run {
                      in_transaction => $self->{IN_TRANSACTION},
                      params => $option{params});
 
-         # destroy cached os info
+        # destroy cached os info
          Rex::Logger::debug("Destroying all cached os information");
 
          Rex::Logger::shutdown();
@@ -258,6 +268,11 @@ sub set_in_transaction {
 sub is_transaction {
    my ($self) = @_;
    return $self->{IN_TRANSACTION};
+}
+
+sub get_exit_codes {
+   my ($self) = @_;
+   return @Rex::Fork::Task::PROCESS_LIST;
 }
 
 1;

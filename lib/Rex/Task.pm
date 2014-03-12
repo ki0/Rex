@@ -38,6 +38,9 @@ use Rex::Interface::Executor;
 use Rex::Group::Entry::Server;
 use Rex::Profiler;
 use Rex::Hardware;
+use Rex::Interface::Cache;
+use Rex::Report;
+use Rex::Helper::Run;
 
 require Rex::Commands;
 
@@ -84,6 +87,11 @@ sub new {
    $self->{executor} ||= Rex::Interface::Executor->create;
 
    $self->{connection} = undef;
+
+   # set to true as default
+   if(! exists $self->{exit_on_connect_fail}) {
+      $self->{exit_on_connect_fail} = 1;
+   }
 
    return $self;
 }
@@ -273,6 +281,10 @@ sub is_https {
    return ($self->{"connection_type"} && lc($self->{"connection_type"}) eq "https");
 }
 
+sub is_openssh {
+   my ($self) = @_;
+   return ($self->{"connection_type"} && lc($self->{"connection_type"}) eq "openssh");
+}
 
 =item want_connect
 
@@ -305,6 +317,9 @@ sub get_connection_type {
    }
    elsif($self->is_https) {
       return "HTTPS";
+   }
+   elsif($self->is_remote && $self->is_openssh && $self->want_connect) {
+      return "OpenSSH";
    }
    elsif($self->is_remote && $self->want_connect) {
       return "SSH";
@@ -521,8 +536,11 @@ sub connect {
    my $public_key = "";
    my $private_key = "";
 
+   #print Dumper($self);
    my $auth = $self->merge_auth($server);
 
+   my $rex_int_conf = Rex::Commands::get("rex_internals");
+   Rex::Logger::debug(Dumper($rex_int_conf));
    Rex::Logger::debug(Dumper($auth));
 
    my $profiler = Rex::Profiler->new;
@@ -536,12 +554,17 @@ sub connect {
    $profiler->end("connect");
 
    if($self->connection->is_authenticated) {
-      Rex::Logger::info("Successfully authenticated.") if($self->connection->get_connection_type ne "Local");
+      Rex::Logger::info("Successfully authenticated on $server.") if($self->connection->get_connection_type ne "Local");
       $self->{"__was_authenticated"} = 1;
    }
    else {
-      Rex::Logger::info("Wrong username or password. Or wrong key.", "warn");
-      CORE::exit(1);
+      Rex::Logger::info("Wrong username/password or wrong key on $server.", "warn");
+      if($self->exit_on_connect_fail) {
+         CORE::exit(1);
+      }
+      else {
+         die();
+      }
    }
 
    # need to get rid of this
@@ -549,10 +572,13 @@ sub connect {
          conn   => $self->connection, 
          ssh    => $self->connection->get_connection_object, 
          server => $server, 
-         cache => Rex::Cache->new(),
+         cache => Rex::Interface::Cache->create(),
          task  => $self,
          profiler => $profiler,
+         reporter => Rex::Report->create(Rex::Config->get_report_type),
    });
+
+   Rex::get_current_connection()->{reporter}->register_reporting_hooks;
 
    $self->run_hook(\$server, "around");
 
@@ -571,7 +597,7 @@ sub disconnect {
 
    my %args = Rex::Args->getopts;
 
-   if(defined $args{'d'} && $args{'d'} > 1) {
+   if(defined $args{'d'} && $args{'d'} > 2) {
       Rex::Commands::profiler()->report;
    }
 
@@ -631,21 +657,63 @@ sub run {
       # so run the task
 
       my $in_transaction = $options{in_transaction};
-      
+
       $self->run_hook(\$server, "before");
       $self->connect($server);
 
+      my $reporter = Rex::get_current_connection()->{reporter};
+      my $start_time = time;
+
       if(Rex::Args->is_opt("c")) {
          # get and cache all os info
-         Rex::Hardware->get(qw/All/);
+         if(! Rex::get_cache()->load()) {
+            Rex::Logger::debug("No cache found, need to collect new data.");
+            $server->gather_information;
+         }
+      }
+
+      if(! $server->test_perl) {
+         Rex::Logger::info("There is no perl interpreter found on this system. Some commands may not work. Sudo won't work.", "warn");
+         sleep 3;
       }
 
       # execute code
-      my $ret = $self->executor->exec($options{params});
+      my $ret;
 
+      eval {
+         $ret = $self->executor->exec($options{params});
+      } or do {
+         if($@) {
+            my $error = $@;
 
-      # reset all os info
-      Rex::Hardware->reset;
+            $reporter->report({
+                  command    => "run_task",
+                  module     => "Rex::TaskList::Base",
+                  start_time => $start_time,
+                  end_time   => time,
+                  success    => 0,
+               }) if ($reporter);
+
+            $reporter->write_report if ($reporter);
+
+            die($error);
+         }
+      };
+
+      if(Rex::Args->is_opt("c")) {
+         # get and cache all os info
+         Rex::get_cache()->save();
+      }
+
+      $reporter->report({
+            command    => "run_task",
+            module     => "Rex::TaskList::Base",
+            start_time => $start_time,
+            end_time   => time,
+            success    => 1,
+         }) if ($reporter);
+
+      $reporter->write_report if ($reporter);
 
       $self->disconnect($server) unless($in_transaction);
       $self->run_hook(\$server, "after");
@@ -688,6 +756,21 @@ sub get_tasks {
 sub get_desc {
    my ($class, @tmp) = @_;
    return Rex::TaskList->create()->get_desc(@tmp);
+}
+
+=item exit_on_connect_fail()
+
+Returns true if rex should exit on connect failure.
+
+=cut
+sub exit_on_connect_fail {
+   my ($self) = @_;
+   return $self->{exit_on_connect_fail};
+}
+
+sub set_exit_on_connect_fail {
+   my ($self, $exit) = @_;
+   $self->{exit_on_connect_fail} = $exit;
 }
 
 =back
