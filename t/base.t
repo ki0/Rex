@@ -1,4 +1,4 @@
-use Test::More tests => 153;
+use Test::More tests => 166;
 
 use_ok 'Rex::Batch';
 use_ok 'Rex::Interface::Cache';
@@ -40,6 +40,8 @@ use_ok 'Rex::Fork::Task';
 use_ok 'Rex::FS::File';
 use_ok 'Rex::Group::Entry::Server';
 use_ok 'Rex::Group::Lookup::File';
+use_ok 'Rex::Group::Lookup::YAML';
+use_ok 'Rex::Group::Lookup::DBI';
 use_ok 'Rex::Group';
 use_ok 'Rex::Hardware::Host';
 use_ok 'Rex::Hardware::Kernel';
@@ -57,6 +59,8 @@ use_ok 'Rex::Helper::Hash';
 use_ok 'Rex::Helper::SSH2::Expect';
 use_ok 'Rex::Helper::SSH2';
 use_ok 'Rex::Helper::System';
+use_ok 'Rex::Helper::DBI';
+use_ok 'Rex::Helper::UserAgent';
 use_ok 'Rex::Interface::Connection::Base';
 use_ok 'Rex::Interface::Connection::Fake';
 use_ok 'Rex::Interface::Connection::HTTP';
@@ -148,10 +152,18 @@ use_ok 'Rex::Interface::Shell::Csh';
 use_ok 'Rex::Interface::Shell::Tcsh';
 use_ok 'Rex::Interface::Shell::Default';
 use_ok 'Rex::Interface::Shell::Bash';
+use_ok 'Rex::Interface::Shell::Base';
 use_ok 'Rex::Interface::Shell::Sh';
 use_ok 'Rex::Interface::Shell::Zsh';
 use_ok 'Rex';
-
+use_ok 'Rex::CMDB::Base';
+use_ok 'Rex::Test';
+use_ok 'Rex::Test::Base';
+use_ok 'Rex::Test::Base::has_content';
+use_ok 'Rex::Test::Base::has_file';
+use_ok 'Rex::Test::Base::has_package';
+use_ok 'Rex::Test::Base::has_service_running';
+use_ok 'Rex::Test::Base::has_service_stopped';
 
 use Data::Dumper;
 my @hosts = Rex::Commands::evaluate_hostname("web[01..10]");
@@ -159,4 +171,3 @@ ok(join(",", @hosts) eq "web01,web02,web03,web04,web05,web06,web07,web08,web09,w
 
 @hosts = Rex::Commands::evaluate_hostname("web[01..10]:5000");
 ok(join(",", @hosts) eq "web01:5000,web02:5000,web03:5000,web04:5000,web05:5000,web06:5000,web07:5000,web08:5000,web09:5000,web10:5000", "host evaluation 2");
-

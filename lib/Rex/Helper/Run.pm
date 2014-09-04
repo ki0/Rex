@@ -1,9 +1,9 @@
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
-# 
-# vim: set ts=3 sw=3 tw=0:
+#
+# vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
-   
+
 package Rex::Helper::Run;
 
 use strict;
@@ -22,64 +22,69 @@ require Rex::Config;
 @EXPORT = qw(upload_and_run i_run);
 
 sub upload_and_run {
-   my ($template, %option) = @_;
+  my ($template, %option) = @_;
 
-   my $rnd_file = get_tmp_file;
+  my $rnd_file = get_tmp_file;
 
-   my $fh = Rex::Interface::File->create;
-   $fh->open(">", $rnd_file);
-   $fh->write($template);
-   $fh->close;
+  my $fh = Rex::Interface::File->create;
+  $fh->open(">", $rnd_file);
+  $fh->write($template);
+  $fh->close;
 
-   my $fs = Rex::Interface::Fs->create;
-   $fs->chmod(755, $rnd_file);
+  my $fs = Rex::Interface::Fs->create;
+  $fs->chmod(755, $rnd_file);
 
-   my @argv;
-   my $command = $rnd_file;
+  my @argv;
+  my $command = $rnd_file;
 
-   if(exists $option{with}) {
-      $command = Rex::Config->get_executor_for($option{with}) . " $command";
-   }
+  if(exists $option{with}) {
+    $command = Rex::Config->get_executor_for($option{with}) . " $command";
+  }
 
-   if(exists $option{args}) {
-      $command .= join(" ", @{ $option{args} });
-   }
+  if(exists $option{args}) {
+    $command .= join(" ", @{ $option{args} });
+  }
 
-   return i_run("$command 2>&1");
+  return i_run("$command 2>&1");
 }
 
 # internal run command, doesn't get reported
 sub i_run {
-   my $cmd = shift;
-   my ($code, $option);
-   if(ref $_[0] eq "CODE") {
-      $code = shift;
-   }
-   elsif(scalar @_ > 0) {
-      $option = { @_ };
-   }
+  my $cmd = shift;
+  my ($code, $option);
+  if(ref $_[0] eq "CODE") {
+    $code = shift;
+  }
+  elsif(scalar @_ > 0) {
+    $option = { @_ };
+  }
 
-   my $path = join(":", Rex::Config->get_path());
+  if(exists $option->{nohup} && $option->{nohup}) {
+    $cmd = "nohup $cmd";
+    delete $option->{nohup};
+  }
 
-   my $exec = Rex::Interface::Exec->create;
-   my ($out, $err) = $exec->exec($cmd, $path, $option);
-   chomp $out if $out;
-   chomp $err if $err;
+  my $path = join(":", Rex::Config->get_path());
 
-   $Rex::Commands::Run::LAST_OUTPUT = [$out, $err];
+  my $exec = Rex::Interface::Exec->create;
+  my ($out, $err) = $exec->exec($cmd, $path, $option);
+  chomp $out if $out;
+  chomp $err if $err;
 
-   $out ||= "";
-   $err ||= "";
+  $Rex::Commands::Run::LAST_OUTPUT = [$out, $err];
 
-   if($code) {
-      return &$code($out, $err);
-   }
+  $out ||= "";
+  $err ||= "";
 
-   if(wantarray) {
-      return split(/\r?\n/, $out);
-   }
+  if($code) {
+    return &$code($out, $err);
+  }
 
-   return $out;
+  if(wantarray) {
+    return split(/\r?\n/, $out);
+  }
+
+  return $out;
 }
 
 1;

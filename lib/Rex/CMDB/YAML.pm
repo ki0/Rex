@@ -1,73 +1,91 @@
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
-# 
-# vim: set ts=3 sw=3 tw=0:
+#
+# vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
-   
+
 package Rex::CMDB::YAML;
 
 use strict;
 use warnings;
 
+use base qw(Rex::CMDB::Base);
+
 use Rex::Commands -no => [qw/get/];
 use Rex::Logger;
 use YAML;
+use Data::Dumper;
 
 sub new {
-   my $that = shift;
-   my $proto = ref($that) || $that;
-   my $self = { @_ };
+  my $that  = shift;
+  my $proto = ref($that) || $that;
+  my $self  = {@_};
 
-   bless($self, $proto);
+  bless( $self, $proto );
 
-   return $self;
+  return $self;
 }
 
 sub get {
-   my ($self, $item, $server) = @_;
+  my ( $self, $item, $server ) = @_;
 
-   # first open $server.yml
-   # second open $environment/$server.yml
-   # third open $environment/default.yml
-   # forth open default.yml
+  # first open $server.yml
+  # second open $environment/$server.yml
+  # third open $environment/default.yml
+  # forth open default.yml
 
-   my $env = environment;
-   my $yaml_path = $self->{path};
-   my @files = ("$env/$server.yml", "$env/default.yml", "$server.yml", "default.yml");
+  my (@files);
 
-   my $all = {};
+  if ( !ref $self->{path} ) {
+    my $env       = environment;
+    my $yaml_path = $self->{path};
+    @files = (
+      "$yaml_path/$env/$server.yml", "$yaml_path/$env/default.yml",
+      "$yaml_path/$server.yml",      "$yaml_path/default.yml"
+    );
+  }
+  elsif ( ref $self->{path} eq "CODE" ) {
+    @files = $self->{path}->();
+  }
+  elsif ( ref $self->{path} eq "ARRAY" ) {
+    @files = @{ $self->{path} };
+  }
 
-   for my $file (@files) {
-      Rex::Logger::debug("CMDB - Opening $yaml_path/$file");
-      if(-f "$yaml_path/$file") {
-         my $content = eval { local(@ARGV, $/) = ("$yaml_path/$file"); <>; };
-         $content .= "\n"; # for safety
+  @files = map { $self->_parse_path($_) } @files;
 
-         my $ref = Load($content);
+  my $all = {};
 
-         if(! $item) {
-            for my $key (keys %{ $ref }) {
-               if(exists $all->{$key}) {
-                  next;
-               }
-               $all->{$key} = $ref->{$key};
-            }
-         }
+  for my $file (@files) {
+    Rex::Logger::debug("CMDB - Opening $file");
+    if ( -f $file ) {
+      my $content = eval { local ( @ARGV, $/ ) = ($file); <>; };
+      $content .= "\n";    # for safety
 
-         if(defined $item && exists $ref->{$item}) {
-            Rex::Logger::debug("CMDB - Found $item in $file");
-            return $ref->{$item};
-         }
+      my $ref = Load($content);
+
+      if ( !$item ) {
+        for my $key ( keys %{$ref} ) {
+          if ( exists $all->{$key} ) {
+            next;
+          }
+          $all->{$key} = $ref->{$key};
+        }
       }
-   }
 
-   if(! $item) {
-      return $all;
-   }
+      if ( defined $item && exists $ref->{$item} ) {
+        Rex::Logger::debug("CMDB - Found $item in $file");
+        return $ref->{$item};
+      }
+    }
+  }
 
-   Rex::Logger::debug("CMDB - no item ($item) found");
+  if ( !$item ) {
+    return $all;
+  }
 
-   return undef;
+  Rex::Logger::debug("CMDB - no item ($item) found");
+
+  return undef;
 }
 
 1;
