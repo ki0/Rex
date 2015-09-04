@@ -9,6 +9,8 @@ package Rex::Cron::Base;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Commands;
 use Rex::Commands::File;
@@ -248,7 +250,7 @@ sub parse_cron {
 }
 
 sub _create_defaults {
-  my ($self, %config) = @_;
+  my ( $self, %config ) = @_;
 
   $config{"minute"}       = "*" unless defined $config{minute};
   $config{"hour"}         = "*" unless defined $config{hour};

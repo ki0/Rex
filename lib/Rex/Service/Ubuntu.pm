@@ -9,105 +9,53 @@ package Rex::Service::Ubuntu;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Commands::Run;
 use Rex::Helper::Run;
 use Rex::Logger;
 
-sub new {
-  my $that = shift;
-  my $proto = ref($that) || $that;
-  my $self = { @_ };
+use base qw(Rex::Service::Base);
 
-  bless($self, $proto);
+sub new {
+  my $that  = shift;
+  my $proto = ref($that) || $that;
+  my $self  = $proto->SUPER::new(@_);
+
+  bless( $self, $proto );
+
+  $self->{commands} = {
+    start          => '/usr/sbin/service %s start',
+    restart        => '/usr/sbin/service %s restart',
+    stop           => '/usr/sbin/service %s stop',
+    reload         => '/usr/sbin/service %s reload',
+    status         => '/usr/sbin/service %s status',
+    ensure_stop    => '/usr/sbin/update-rc.d -f %s remove',
+    ensure_start   => '/usr/sbin/update-rc.d %s defaults',
+    action         => '/usr/sbin/service %s %s',
+    service_exists => '/usr/sbin/service --status-all 2>&1 | grep %s',
+  };
 
   return $self;
 }
 
-sub start {
-  my($self, $service) = @_;
-
-  i_run "service $service start", nohup => 1;
-
-  if($? == 0) {
-    return 1;
-  }
-
-  return 0;
-}
-
-sub restart {
-  my($self, $service) = @_;
-
-  i_run "service $service restart", nohup => 1;
-
-  if($? == 0) {
-    return 1;
-  }
-
-  return 0;
-}
-
-sub stop {
-  my($self, $service) = @_;
-
-  i_run "service $service stop", nohup => 1;
-
-  if($? == 0) {
-    return 1;
-  }
-
-  return 0;
-}
-
-sub reload {
-  my($self, $service) = @_;
-
-  i_run "service $service reload";
-
-  if($? == 0) {
-    return 1;
-  }
-
-  return 0;
-}
-
 sub status {
-  my($self, $service) = @_;
+  my ( $self, $service, $options ) = @_;
 
-  my @ret = i_run "service $service status";
+  my $ret = $self->SUPER::status( $service, $options );
 
   # bad... really bad ...
-  if($? != 0) {
+  if ( $ret == 0 ) {
     return 0;
   }
 
-  if(grep { /NOT running|stop\// } @ret) {
+  my $output = $self->get_output;
+
+  if ( $output =~ m/NOT running|stop\//ms ) {
     return 0;
   }
 
   return 1;
-}
-
-sub ensure {
-  my ($self, $service, $what) = @_;
-
-  if($what =~  /^stop/) {
-    $self->stop($service);
-    i_run "update-rc.d -f $service remove";
-  }
-  elsif($what =~ /^start/ || $what =~ m/^run/) {
-    $self->start($service);
-    i_run "update-rc.d $service defaults";
-  }
-
-  if($? == 0) { return 1; } else { return 0; }
-}
-
-sub action {
-  my ($self, $service, $action) = @_;
-
-  i_run "service $service $action", nohup => 1;
-  if($? == 0) { return 1; }
 }
 
 1;

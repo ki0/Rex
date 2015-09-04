@@ -9,15 +9,23 @@ package Rex::Cloud::OpenStack;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 
 use base 'Rex::Cloud::Base';
 
-use HTTP::Request::Common qw(:DEFAULT DELETE);
-use JSON::XS;
-use LWP::UserAgent;
+BEGIN {
+  use Rex::Require;
+  JSON::XS->use;
+  HTTP::Request::Common->use(qw(:DEFAULT DELETE));
+  LWP::UserAgent->use;
+}
 use Data::Dumper;
 use Carp;
+use MIME::Base64 qw(decode_base64);
+use Digest::MD5 qw(md5_hex);
+use File::Basename;
 
 sub new {
   my $that  = shift;
@@ -119,6 +127,7 @@ sub run_instance {
       flavorRef => $data{plan_id},
       imageRef  => $data{image_id},
       name      => $data{name},
+      key_name  => $data{key},
     }
   };
 
@@ -143,6 +152,15 @@ sub run_instance {
     );
   }
 
+  if ( exists $data{floating_ip} ) {
+    $self->associate_floating_ip(
+      instance_id => $id,
+      floating_ip => $data{floating_ip},
+    );
+
+    ($info) = grep { $_->{id} eq $id } $self->list_running_instances;
+  }
+
   return $info;
 }
 
@@ -163,28 +181,65 @@ sub terminate_instance {
 }
 
 sub list_instances {
-  my $self     = shift;
+  my $self    = shift;
+  my %options = @_;
+
+  $options{private_network} ||= "private";
+  $options{public_network}  ||= "public";
+  $options{public_ip_type}  ||= "floating";
+  $options{private_ip_type} ||= "fixed";
+
   my $nova_url = $self->get_nova_url;
   my @instances;
 
   my $content = $self->_request( GET => $nova_url . '/servers/detail' );
 
   for my $instance ( @{ $content->{servers} } ) {
-    push @instances,
-      {
-      ip           => $instance->{addresses}{public}[0]{addr},
+    my %networks;
+    for my $net ( keys %{ $instance->{addresses} } ) {
+      for my $ip_conf ( @{ $instance->{addresses}->{$net} } ) {
+        push @{ $networks{$net} },
+          {
+          mac  => $ip_conf->{'OS-EXT-IPS-MAC:mac_addr'},
+          ip   => $ip_conf->{addr},
+          type => $ip_conf->{'OS-EXT-IPS:type'},
+          };
+      }
+    }
+
+    push @instances, {
+      ip => (
+        [
+          map {
+                $_->{"OS-EXT-IPS:type"} eq $options{public_ip_type}
+              ? $_->{'addr'}
+              : ()
+          } @{ $instance->{addresses}{ $options{public_network} } }
+        ]->[0]
+          || undef
+      ),
       id           => $instance->{id},
       architecture => undef,
       type         => $instance->{flavor}{id},
       dns_name     => undef,
       state   => ( $instance->{status} eq 'ACTIVE' ? 'running' : 'stopped' ),
       __state => $instance->{status},
-      launch_time     => $instance->{'OS-SRV-USG:launched_at'},
-      name            => $instance->{name},
-      private_ip      => $instance->{addresses}{private}[0]{addr},
-      security_groups => join ',',
-      map { $_->{name} } @{ $instance->{security_groups} },
-      };
+      launch_time => $instance->{'OS-SRV-USG:launched_at'},
+      name        => $instance->{name},
+      private_ip  => (
+        [
+          map {
+                $_->{"OS-EXT-IPS:type"} eq $options{private_ip_type}
+              ? $_->{'addr'}
+              : ()
+          } @{ $instance->{addresses}{ $options{private_network} } }
+        ]->[0]
+          || undef
+      ),
+      security_groups =>
+        ( join ',', map { $_->{name} } @{ $instance->{security_groups} } ),
+      networks => \%networks,
+    };
   }
 
   return @instances;
@@ -242,7 +297,9 @@ sub list_flavors {
 
   Rex::Logger::debug('Listing flavors');
 
-  $self->_request( GET => $nova_url . '/flavors' );
+  my $flavors = $self->_request( GET => $nova_url . '/flavors' );
+  confess "Error getting cloud flavors." if ( !exists $flavors->{flavors} );
+  return @{ $flavors->{flavors} };
 }
 
 sub list_plans { return shift->list_flavors; }
@@ -298,7 +355,7 @@ sub delete_volume {
   $self->_request( DELETE => $cinder_url . '/volumes/' . $data{volume_id} );
 
   until ( !grep { $_->{id} eq $data{volume_id} } $self->list_volumes ) {
-    Rex::Logger::debug('Waiting for volume to be delete...');
+    Rex::Logger::debug('Waiting for volume to be deleted...');
     sleep 1;
   }
 
@@ -360,6 +417,104 @@ sub detach_volume {
       . $data{instance_id}
       . '/os-volume_attachments/'
       . $data{volume_id} );
+}
+
+sub get_floating_ip {
+  my $self     = shift;
+  my $nova_url = $self->get_nova_url;
+
+  # look for available floating IP
+  my $floating_ips = $self->_request( GET => $nova_url . '/os-floating-ips' );
+
+  for my $floating_ip ( @{ $floating_ips->{floating_ips} } ) {
+    return $floating_ip->{ip} if ( !$floating_ip->{instance_id} );
+  }
+  confess "No floating IP available.";
+}
+
+sub associate_floating_ip {
+  my ( $self, %data ) = @_;
+  my $nova_url = $self->get_nova_url;
+
+  # associate available floating IP to instance id
+  my $request_data = {
+    addFloatingIp => {
+      address => $data{floating_ip}
+    }
+  };
+
+  Rex::Logger::debug('Associating floating IP to instance');
+
+  my $content = $self->_request(
+    POST         => $nova_url . '/servers/' . $data{instance_id} . '/action',
+    content_type => 'application/json',
+    content      => encode_json($request_data),
+  );
+}
+
+sub list_keys {
+  my $self     = shift;
+  my $nova_url = $self->get_nova_url;
+
+  my $content = $self->_request( GET => $nova_url . '/os-keypairs' );
+
+  # remove ':' from fingerprint string
+  foreach ( @{ $content->{keypairs} } ) {
+    $_->{keypair}->{fingerprint} =~ s/://g;
+  }
+  return @{ $content->{keypairs} };
+}
+
+sub upload_key {
+  my ($self) = shift;
+  my $nova_url = $self->get_nova_url;
+
+  my $public_key = glob( Rex::Config->get_public_key );
+  my ( $public_key_name, undef, undef ) = fileparse( $public_key, qr/\.[^.]*/ );
+
+  my ( $type, $key, $comment );
+
+  # read public key
+  my $fh;
+  unless ( open( $fh, "<", glob($public_key) ) ) {
+    Rex::Logger::debug("Cannot read $public_key");
+    return;
+  }
+
+  { local $/ = undef; ( $type, $key, $comment ) = split( /\s+/, <$fh> ); }
+  close $fh;
+
+  # calculate key fingerprint so we can compare them
+  my $fingerprint = md5_hex( decode_base64($key) );
+  Rex::Logger::debug("Public key fingerprint is $fingerprint");
+
+  # upoad only new key
+  my $online_key = pop @{
+    [
+      map { $_->{keypair}->{fingerprint} eq $fingerprint ? $_ : () }
+        $self->list_keys()
+    ]
+  };
+  if ($online_key) {
+    Rex::Logger::debug("Public key already uploaded");
+    return $online_key->{keypair}->{name};
+  }
+
+  my $request_data = {
+    keypair => {
+      public_key => "$type $key",
+      name       => $public_key_name,
+    }
+  };
+
+  Rex::Logger::info('Uploading public key');
+  $self->_request(
+    POST         => $nova_url . '/os-keypairs',
+    content_type => 'application/json',
+    content      => encode_json($request_data),
+  );
+
+  return $public_key_name;
 }
 
 1;

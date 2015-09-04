@@ -9,6 +9,8 @@ package Rex::Hardware::Host;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex;
 use Rex::Commands::Run;
 use Rex::Helper::Run;
@@ -119,9 +121,9 @@ sub get_operating_system {
     return "Windows";
   }
 
-  if(is_file("/etc/system-release")) {
+  if ( is_file("/etc/system-release") ) {
     my $content = cat "/etc/system-release";
-    if($content =~ m/Amazon/sm) {
+    if ( $content =~ m/Amazon/sm ) {
       return "Amazon";
     }
   }
@@ -172,7 +174,7 @@ sub get_operating_system {
   }
 
   my $os_string = i_run("uname -s");
-  return $os_string;    # return the plain os
+  return $os_string; # return the plain os
 
 }
 

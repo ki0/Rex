@@ -9,10 +9,15 @@ package Rex::Interface::Exec::SSH;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Helper::SSH2;
 use File::Basename 'basename';
 use Rex::Interface::Shell;
 require Rex::Commands;
+
+# Use 'parent' is recommended, but from Perl 5.10.1 its in core
+use base 'Rex::Interface::Exec::Base';
 
 sub new {
   my $that  = shift;
@@ -25,7 +30,7 @@ sub new {
 }
 
 sub direct_exec {
-  my ($self, $exec, $option) = @_;
+  my ( $self, $exec, $option ) = @_;
 
   Rex::Commands::profiler()->start("direct_exec: $exec");
 
@@ -75,8 +80,8 @@ sub exec {
     $shell->source_profile(1);
   }
 
-  if(exists $option->{env}) {
-    $shell->set_environment($option->{env});
+  if ( exists $option->{env} ) {
+    $shell->set_environment( $option->{env} );
   }
 
   my $exec = $shell->exec( $cmd, $option );
@@ -100,10 +105,11 @@ sub exec {
 sub _exec {
   my ( $self, $exec, $option ) = @_;
 
-  my $callback = $option->{continuous_read} || undef;
+  # my $callback = $option->{continuous_read} || undef;
+  # $option->{continuous_read} ||= $callback;
 
   my $ssh = Rex::is_ssh();
-  my ( $out, $err ) = net_ssh2_exec( $ssh, $exec, $callback );
+  my ( $out, $err ) = net_ssh2_exec( $ssh, $exec, $self, $option );
 
   return ( $out, $err );
 }
@@ -112,7 +118,9 @@ sub _get_shell {
   my ($self) = @_;
 
   my ($shell_path) = $self->_exec("echo \$SHELL");
+  $shell_path ||= '/bin/sh'; # fallback to /bin/sh
   chomp $shell_path;
+
   my $used_shell = basename($shell_path);
   return $used_shell;
 }

@@ -10,8 +10,7 @@ Rex::Test::Base - Basic Test Module
 
 =head1 DESCRIPTION
 
-This module is a basic Test module to test your Code with the help of local VMs. To create a test you first have to create the "t" directory.
-Then you can create your test files inside this directory.
+This is a basic test module to test your code with the help of local VMs. You can place your tests in the "t" directory.
 
 =head1 EXAMPLE
 
@@ -58,8 +57,10 @@ package Rex::Test::Base;
 use strict;
 use warnings;
 
-#use Rex -base;
-require Test::More;
+use base 'Test::Builder::Module';
+
+# VERSION
+
 require Rex::Commands;
 use Rex::Commands::Box;
 use Data::Dumper;
@@ -69,8 +70,6 @@ require Exporter;
 use base qw(Exporter);
 use vars qw(@EXPORT);
 @EXPORT = qw(test);
-
-Rex::Commands::set( box => "VBox" );
 
 =item new(name => $test_name)
 
@@ -97,9 +96,10 @@ sub new {
 
 =item name($name)
 
-The name of the test. For each test a new vm will be created named after $name.
+The name of the test. A VM called $name will be created for each test. If the VM already exists, Rex will try to reuse it.
 
 =cut
+
 sub name {
   my ( $self, $name ) = @_;
   $self->{name} = $name;
@@ -107,9 +107,10 @@ sub name {
 
 =item vm_auth(%auth)
 
-Authentication option for the VM.
+Authentication options for the VM. It accepts the same parameters as C<Rex::Box::Base-E<gt>auth()>.
 
 =cut
+
 sub vm_auth {
   my ( $self, %auth ) = @_;
   $self->{auth} = \%auth;
@@ -117,9 +118,10 @@ sub vm_auth {
 
 =item base_vm($vm)
 
-The url to a vm that should be used as base VM.
+The URL to a base image to be used for the test VM.
 
 =cut
+
 sub base_vm {
   my ( $self, $vm ) = @_;
   $self->{vm} = $vm;
@@ -133,9 +135,10 @@ sub test(&) {
 
 =item redirect_port($port)
 
-The redirected SSH port. Default 2222.
+Redirect local $port to the VM's SSH port (default: 2222).
 
 =cut
+
 sub redirect_port {
   my ( $self, $port ) = @_;
   $self->{redirect_port} = $port;
@@ -143,9 +146,10 @@ sub redirect_port {
 
 =item run_task($task)
 
-The task to run on the test vm.
+The task to run on the test VM. You can run multiple tasks by passing an array reference.
 
 =cut
+
 sub run_task {
   my ( $self, $task ) = @_;
 
@@ -164,7 +168,13 @@ sub run_task {
     $box->forward_port( ssh => [ $self->{redirect_port}, 22 ] );
 
     $box->auth( %{ $self->{auth} } );
-    $box->setup($task);
+
+    if ( ref $task eq 'ARRAY' ) {
+      $box->setup(@$task);
+    }
+    else {
+      $box->setup($task);
+    }
   };
 
   $self->{box} = $box;
@@ -178,13 +188,25 @@ sub run_task {
 
 sub ok {
   my ( $self, $test, $msg ) = @_;
-  Test::More::ok( $test, $msg );
+  my $tb = Rex::Test::Base->builder;
+  $tb->ok( $test, $msg );
+}
+
+sub diag {
+  my ( $self, $msg ) = @_;
+  my $tb = Rex::Test::Base->builder;
+  $tb->diag($msg);
 }
 
 sub finish {
-  Test::More::done_testing();
+  my $tb = Rex::Test::Base->builder;
+  $tb->done_testing();
+  $tb->is_passing()
+    ? print "PASS\n"
+    : print "FAIL\n";
+  $tb->reset();
+  Rex::pop_connection();
 }
-
 
 =back
 
@@ -196,21 +218,37 @@ sub finish {
 
 Test if the content of $file matches against $regexp.
 
-=item has_package($package)
+=item has_dir($path)
 
-Test if the package $package is installed.
+Test if $path is present and is a directory.
 
 =item has_file($file)
 
-Test if the file $file is present.
+Test if $file is present.
+
+=item has_package($package, $version)
+
+Test if $package is installed, optionally at $version.
 
 =item has_service_running($service)
 
-Test if the service $service is running.
+Test if $service is running.
 
 =item has_service_stopped($service)
 
-Test if the service $service is stopped.
+Test if $service is stopped.
+
+=item has_stat($file, $stat)
+
+Test if $file has properties described in hash reference $stat. List of supported checks:
+
+=over 4
+
+=item group
+
+=item owner
+
+=back
 
 =back
 
@@ -219,7 +257,7 @@ Test if the service $service is stopped.
 our $AUTOLOAD;
 
 sub AUTOLOAD {
-  my $self = shift or return undef;
+  my $self = shift or return;
   ( my $method = $AUTOLOAD ) =~ s{.*::}{};
 
   if ( $method eq "DESTROY" ) {

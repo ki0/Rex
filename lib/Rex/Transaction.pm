@@ -1,6 +1,6 @@
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
-# 
+#
 # vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
 
@@ -10,7 +10,7 @@ Rex::Transaction - Transaction support.
 
 =head1 DESCRIPTION
 
-With this module you can define transactions and rollback szenarios on failure.
+With this module you can define transactions and rollback scenarios on failure.
 
 =head1 SYNOPSIS
 
@@ -33,12 +33,12 @@ With this module you can define transactions and rollback szenarios on failure.
 
 =cut
 
-
-
 package Rex::Transaction;
 
 use strict;
 use warnings;
+
+# VERSION
 
 require Exporter;
 
@@ -83,17 +83,16 @@ sub transaction(&) {
 
   Rex::TaskList->create()->set_in_transaction(1);
 
-  eval {
-    &$code();
-  };
+  eval { &$code(); };
 
-  if($@) {
+  if ($@) {
     Rex::Logger::info("Transaction failed. Rolling back.");
 
     $ret = 0;
-    for my $rollback_code (reverse @ROLLBACKS) {
+    for my $rollback_code ( reverse @ROLLBACKS ) {
+
       # push the connection of the task back
-      Rex::push_connection($rollback_code->{"connection"});
+      Rex::push_connection( $rollback_code->{"connection"} );
 
       # run the rollback code
       &{ $rollback_code->{"code"} }();
@@ -122,10 +121,13 @@ See I<transaction>.
 sub on_rollback(&) {
   my ($code) = @_;
 
-  push (@ROLLBACKS, {
-    code     => $code,
-    connection => Rex::get_current_connection()
-  });
+  push(
+    @ROLLBACKS,
+    {
+      code       => $code,
+      connection => Rex::get_current_connection()
+    }
+  );
 }
 
 =back

@@ -9,6 +9,8 @@ package Rex::Virtualization::LibVirt::reboot;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Helper::Run;
 
@@ -29,7 +31,7 @@ sub execute {
     die("VM $dom not found.");
   }
 
-  i_run "virsh -c $uri reboot $dom";
+  i_run "virsh -c $uri reboot '$dom'";
   if ( $? != 0 ) {
     die("Error rebooting vm $dom");
   }

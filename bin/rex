@@ -2,19 +2,20 @@
 
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
-# 
+#
 # vim: set ts=3 sw=3 tw=0:
 # vim: set expandtab:
 
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::CLI;
 
 my $rex = Rex::CLI->new;
 $rex->__run__;
 
-    
 __END__
 
 =pod
@@ -35,7 +36,9 @@ Rex is a tool to ease the execution of commands on multiple remote servers. You 
 
 =item -H              Execute task on these hosts
 
-=item -G              Execute task on these group
+=item -z              Execute task on hosts from this command's output
+
+=item -G|-g           Execute task on these group
 
 =item -u              Username for the ssh connection
 
@@ -47,9 +50,17 @@ Rex is a tool to ease the execution of commands on multiple remote servers. You 
 
 =item -T              List all known tasks.
 
+=item -Tm             List all known tasks in "machine readable" format
+
+=item -Ty             List all known tasks in YAML format
+
+=item -Tv             List all known tasks with all information
+
 =item -f              Use this file instead of Rexfile
 
 =item -h              Display this help
+
+=item -m              Monochrome output. No colors
 
 =item -M              Load Module instead of Rexfile
 
@@ -70,6 +81,14 @@ Rex is a tool to ease the execution of commands on multiple remote servers. You 
 =item -C              Turn cache OFF
 
 =item -c              Turn cache ON
+
+=item -q              Quiet mode. No Logging output
+
+=item -qw             Quiet mode. Only output warnings and errors
+
+=item -Q              Really quiet. Output nothing.
+
+=item -t              Number of threads to use ('parallelism' parameter)
 
 =back
 
@@ -129,6 +148,12 @@ B<Define parallelism>
 
 =head3 Group your servers
 
+Rex gives you the possibility to B<group your servers>. One way is to do
+it in code within the Rexfile. Another is to use a I<server.ini> file
+in the same directory as the Rexfile.
+
+=head4 Code in the Rexfile
+
 Rex gives you the possibility to B<group your servers>. So you don't need to type every servername multiple times.
 
  group "frontends" => "frontend01", "frontend02", "frontend03", "frontend04";
@@ -136,6 +161,13 @@ Rex gives you the possibility to B<group your servers>. So you don't need to typ
 You can even B<define ranges> in the servernames:
 
  group "frontends" => "frontend[01..04]";
+
+=head4 Using server.ini
+
+The same group definition can be stored in a I<server.ini> file:
+
+ [frontends]
+ frontend[01..04]
 
 =head3 Your tasks
 

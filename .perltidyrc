@@ -1,1 +1,4 @@
--i=2 # indent with two spaces
+--ignore-side-comment-lengths
+--indent-columns=2
+--minimum-space-to-comment=1
+--no-outdent-long-quotes

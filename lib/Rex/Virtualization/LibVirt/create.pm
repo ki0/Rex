@@ -9,6 +9,8 @@ package Rex::Virtualization::LibVirt::create;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Commands::Gather;
 use Rex::Hardware;
@@ -108,7 +110,7 @@ sub execute {
     }
   }
 
-  Rex::Logger::info("creating domain: \"$opts->{'name'}\"");
+  Rex::Logger::info("Creating domain: \"$opts->{'name'}\"");
 
   $parsed_template =~ s/[\n\r]//gms;
 
@@ -394,7 +396,7 @@ sub _set_network_defaults {
           type     => "pci",
           domain   => "0x0000",
           bus      => "0x00",
-          slot     => "0x" . sprintf('%02i', $slot),
+          slot     => "0x" . sprintf( '%02i', $slot ),
           function => "0x0",
         };
 
@@ -468,11 +470,22 @@ __DATA__
    <serial type="pty">
     <target port="0"/>
    </serial>
+   <% my $serial_i = 1; %>
+   <% for my $serial (@{ $serial_devices }) { %>
+   <% if($serial->{type} eq "tcp") { %>
+   <serial type='<%= $serial->{type} %>'>
+     <source mode='bind' host='<%= $serial->{host} %>' service='<%= $serial->{port} %>'/>
+     <protocol type='raw'/>
+     <target port='<%= $serial_i %>'/>
+   </serial>
+   <% } %>
+   <% $serial_i++; %>
+   <% } %>
    <console type="pty">
     <target port="0"/>
    </console>
    <input type="mouse" bus="ps2"/>
-   <graphics type="vnc" autoport="yes" listen="*"/>
+   <graphics type="vnc" autoport="yes" listen="0.0.0.0"/>
    <video>
     <model type="cirrus" vram="9216" heads="1"/>
     <address type="pci" domain="0x0000" bus="0x00" slot="0x02" function="0x0"/>

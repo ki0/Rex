@@ -13,17 +13,21 @@ package Rex::Cloud::Amazon;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Cloud::Base;
 
 use base qw(Rex::Cloud::Base);
 
-use LWP::UserAgent;
-use MIME::Base64 qw(encode_base64 decode_base64);
-use Digest::HMAC_SHA1;
-use HTTP::Date qw(time2isoz);
-
-require XML::Simple;
+BEGIN {
+  use Rex::Require;
+  LWP::UserAgent->use;
+  Digest::HMAC_SHA1->use;
+  HTTP::Date->use(qw(time2isoz));
+  MIME::Base64->use(qw(encode_base64 decode_base64));
+  XML::Simple->require;
+}
 
 use Data::Dumper;
 
@@ -135,7 +139,7 @@ sub run_instance {
     $self->attach_volume(
       volume_id   => $data{"volume"},
       instance_id => $ref->{"instancesSet"}->{"item"}->{"instanceId"},
-      name => "/dev/sdh",    # default for new instances
+      name => "/dev/sdh", # default for new instances
     );
   }
 
@@ -293,6 +297,7 @@ sub _make_instance_map {
   return (
     ip           => $_[1]->{"ipAddress"},
     id           => $_[1]->{"instanceId"},
+    image_id     => $_[1]->{"imageId"},
     architecture => $_[1]->{"architecture"},
     type         => $_[1]->{"instanceType"},
     dns_name     => $_[1]->{"dnsName"},
@@ -355,7 +360,7 @@ sub list_instances {
     if ( ref $isi eq 'HASH' ) {
       push( @ret, { $self->_make_instance_map($isi) } );
     }
-    elsif ( $isi eq 'ARRAY' ) {
+    elsif ( ref $isi eq 'ARRAY' ) {
       for my $iset (@$isi) {
         push( @ret, { $self->_make_instance_map($iset) } );
       }
@@ -411,10 +416,10 @@ sub _request {
   $ua->env_proxy;
   my %param = $self->_sign( $action, %args );
 
-  Rex::Logger::debug( "Sending request to: http://" . $self->{'__endpoint'} );
+  Rex::Logger::debug( "Sending request to: https://" . $self->{'__endpoint'} );
   Rex::Logger::debug( "  $_ -> " . $param{$_} ) for keys %param;
 
-  my $res = $ua->post( "http://" . $self->{'__endpoint'}, \%param );
+  my $res = $ua->post( "https://" . $self->{'__endpoint'}, \%param );
 
   if ( $res->code >= 500 ) {
     Rex::Logger::info( "Error on request", "warn" );

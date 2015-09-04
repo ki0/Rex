@@ -3,26 +3,20 @@ use Test::More tests => 5;
 use_ok 'Rex::Commands';
 use_ok 'Rex::Commands::Run';
 
+$::QUIET = 1;
+
 Rex::Commands->import;
 Rex::Commands::Run->import;
 
-if($^O =~ /MSWin/) {
-   run("dir");
-}
-else {
-   run("ls -l");
-}
+my $command = ( $^O =~ /MSWin/ ) ? 'dir' : 'ls -l';
+run($command);
 
 my $s = last_command_output();
-ok($s =~ m/Makefile\.PL/gms);
+like( $s, qr/ChangeLog/ms );
 
-if($^O =~ /MSWin/) {
-   run("dir t");
-}
-else {
-   run("ls -l t");
-}
+$command .= ' t';
+run($command);
 
 $s = last_command_output();
-ok($s !~ m/Makefile\.PL/gms);
-ok($s =~ m/base\.t/gms);
+unlike( $s, qr/ChangeLog/ms );
+like( $s, qr/base\.t/ms );

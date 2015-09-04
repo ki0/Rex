@@ -9,6 +9,8 @@ package Rex::Virtualization::LibVirt::delete;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Helper::Run;
 
@@ -29,7 +31,7 @@ sub execute {
     die("VM $dom not found.");
   }
 
-  i_run "virsh -c $uri undefine $dom";
+  i_run "virsh -c $uri undefine '$dom'";
   if ( $? != 0 ) {
     die("Error destroying vm $dom");
   }

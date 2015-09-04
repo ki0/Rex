@@ -9,6 +9,8 @@ package Rex::CMDB::YAML;
 use strict;
 use warnings;
 
+# VERSION
+
 use base qw(Rex::CMDB::Base);
 
 use Rex::Commands -no => [qw/get/];
@@ -54,14 +56,16 @@ sub get {
   @files = map { $self->_parse_path($_) } @files;
 
   my $all = {};
+  Rex::Logger::debug( Dumper( \@files ) );
 
   for my $file (@files) {
     Rex::Logger::debug("CMDB - Opening $file");
     if ( -f $file ) {
-      my $content = eval { local ( @ARGV, $/ ) = ($file); <>; };
-      $content .= "\n";    # for safety
 
-      my $ref = Load($content);
+      #my $content = eval { local ( @ARGV, $/ ) = ($file); <>; };
+      #$content .= "\n";    # for safety
+
+      my $ref = YAML::LoadFile($file);
 
       if ( !$item ) {
         for my $key ( keys %{$ref} ) {
@@ -85,7 +89,7 @@ sub get {
 
   Rex::Logger::debug("CMDB - no item ($item) found");
 
-  return undef;
+  return;
 }
 
 1;

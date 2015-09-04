@@ -17,7 +17,7 @@ With this module you can install packages and files.
  install file => "/etc/passwd", {
               source => "/export/files/etc/passwd"
             };
- 
+
  install package => "perl";
 
 =head1 EXPORTED FUNCTIONS
@@ -30,6 +30,8 @@ package Rex::Commands::Pkg;
 
 use strict;
 use warnings;
+
+# VERSION
 
 use Rex::Pkg;
 use Rex::Logger;
@@ -46,7 +48,6 @@ use Rex::Commands;
 use Rex::Hook;
 
 use Data::Dumper;
-use Digest::MD5;
 
 require Rex::Exporter;
 
@@ -65,16 +66,16 @@ Use this resource to install or update a package. This resource will generate re
  pkg "httpd",
    ensure    => "latest",    # ensure that the newest version is installed (auto-update)
    on_change => sub { say "package was installed/updated"; };
- 
+
  pkg "httpd",
    ensure => "absent";    # remove the package
- 
+
  pkg "httpd",
    ensure => "present";   # ensure that some version is installed (no auto-update)
- 
+
  pkg "httpd",
    ensure => "2.4.6";    # ensure that version 2.4.6 is installed
- 
+
  pkg "apache-server",    # with a custom resource name
    package => "httpd",
    ensure  => "present";
@@ -86,7 +87,7 @@ sub pkg {
 
   my $package = $res_package;
 
-  if(exists $option{package}) {
+  if ( exists $option{package} ) {
     $package = $option{package};
   }
 
@@ -117,7 +118,6 @@ sub pkg {
   }
 
   my ($new_package) = grep { $_->{name} eq $package } $pkg->get_installed;
-
   if ( $old_package
     && $new_package
     && $old_package->{version} ne $new_package->{version} )
@@ -137,10 +137,18 @@ sub pkg {
       changed => 1,
       message => "Package $package installed in version $new_package->{version}"
     );
+
+    if ( exists $option{on_change} && ref $option{on_change} eq "CODE" ) {
+      $option{on_change}->( $package, %option );
+    }
   }
   elsif ( $old_package && !$new_package ) {
     Rex::get_current_connection()->{reporter}
       ->report( changed => 1, message => "Package $package removed." );
+
+    if ( exists $option{on_change} && ref $option{on_change} eq "CODE" ) {
+      $option{on_change}->( $package, %option );
+    }
   }
   else {
     Rex::get_current_connection()->{reporter}->report( changed => 0, );
@@ -162,7 +170,7 @@ If you need reports, please use the pkg() resource.
 
  task "prepare", "server01", sub {
    install package => "perl";
- 
+
    # or if you have to install more packages.
    install package => [
                   "perl",
@@ -187,7 +195,7 @@ This is deprecated since 0.9. Please use L<File> I<file> instead.
               };
  };
 
-=item installing a file and do somthing if the file was changed.
+=item installing a file and do something if the file was changed.
 
  task "prepare", "server01", sub {
    install file => "/etc/httpd/apache2.conf", {
@@ -395,7 +403,7 @@ sub install {
     # if we're being asked to install a single package
     if ( @{$package} == 1 ) {
       my $pkg_to_install = shift @{$package};
-      unless ( $pkg->is_installed($pkg_to_install) ) {
+      unless ( $pkg->is_installed( $pkg_to_install, $option ) ) {
         Rex::Logger::info("Installing $pkg_to_install.");
 
         #### check and run before_change hook
@@ -416,15 +424,14 @@ sub install {
     else {
       my @pkgCandidates;
       for my $pkg_to_install ( @{$package} ) {
-        unless ( $pkg->is_installed($pkg_to_install) ) {
+        unless ( $pkg->is_installed( $pkg_to_install, $option ) ) {
           push @pkgCandidates, $pkg_to_install;
         }
       }
 
       if (@pkgCandidates) {
         Rex::Logger::info("Installing @pkgCandidates");
-        $pkg->bulk_install( \@pkgCandidates, $option )
-          ;    # here, i think $option is useless in its current form.
+        $pkg->bulk_install( \@pkgCandidates, $option ); # here, i think $option is useless in its current form.
         $changed = 1;
       }
     }
@@ -501,6 +508,7 @@ sub remove {
       if ( $pkg->is_installed($_pkg) ) {
         Rex::Logger::info("Removing $_pkg.");
         $pkg->remove( $_pkg, $option );
+        $pkg->purge( $_pkg, $option );
       }
       else {
         Rex::Logger::info("$_pkg is not installed.");
@@ -522,7 +530,7 @@ sub remove {
 
 =item update_system
 
-This function do a complete system update.
+This function does a complete system update.
 
 For example I<apt-get upgrade> or I<yum update>.
 
@@ -530,13 +538,48 @@ For example I<apt-get upgrade> or I<yum update>.
    update_system;
  };
 
+If you want to get the packages that where updated, you can use the I<on_change> hook.
+
+ task "update-system", "server1", sub {
+   update_system
+     on_change => sub {
+       my (@modified_packages) = @_;
+       for my $pkg (@modified_packages) {
+         say "Name: $pkg->{name}";
+         say "Version: $pkg->{version}";
+         say "Action: $pkg->{action}";   # some of updated, installed or removed
+       }
+     };
+ };
+
+
 =cut
 
 sub update_system {
   my $pkg = Rex::Pkg->get;
-  eval { $pkg->update_system; } or do {
-    Rex::Logger::info("An error occured for update_system: $@", "warn");
-  };
+  my (%option) = @_;
+
+  # safe the currently installed packages, so that we can compare
+  # the package db for changes
+  my @old_installed = $pkg->get_installed;
+
+  eval { $pkg->update_system; };
+  Rex::Logger::info( "An error occured for update_system: $@", "warn" ) if $@;
+
+  my @new_installed = $pkg->get_installed;
+
+  my @modifications =
+    $pkg->diff_package_list( \@old_installed, \@new_installed );
+
+  if ( scalar @modifications > 0 ) {
+
+    # there where some changes in the package database
+    if ( exists $option{on_change} && ref $option{on_change} eq "CODE" ) {
+
+      # run the on_change hook
+      $option{on_change}->(@modifications);
+    }
+  }
 }
 
 =item installed_packages
@@ -544,12 +587,12 @@ sub update_system {
 This function returns all installed packages and their version.
 
  task "get-installed", "server1", sub {
- 
+
     for my $pkg (installed_packages()) {
       say "name    : " . $pkg->{"name"};
       say "  version: " . $pkg->{"version"};
     }
- 
+
  };
 
 =cut
@@ -625,7 +668,7 @@ For CentOS, Mageia and SuSE only the name and the url are needed.
  task "add-repo", "server1", "server2", sub {
    repository add => "repository-name",
       url => 'http://rex.linux-files.org/CentOS/$releasever/rex/$basearch/';
- 
+
  };
 
 To remove a repository just delete it with its name.
@@ -704,10 +747,10 @@ sub repository {
 To set an other package provider as the default, use this function.
 
  user "root";
- 
+
  group "db" => "db[01..10]";
  package_provider_for SunOS => "blastwave";
- 
+
  task "prepare", group => "db", sub {
     install package => "vim";
  };

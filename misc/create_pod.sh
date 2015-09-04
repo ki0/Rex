@@ -7,7 +7,7 @@ HEADER=$(cat <<EOF
 % content_for header => begin
       <meta name="description" content="{{DESC}}">
       <meta name="keywords" content="Rex, API, Documentation">
-% end 
+% end
 
 EOF
 
@@ -19,7 +19,14 @@ EOF
 
 )
 
-for x in lib/Rex/Commands/Cloud.pm \
+for x in \
+   lib/Rex.pm \
+   lib/Rex/Box/Amazon.pm \
+   lib/Rex/Box/Base.pm \
+   lib/Rex/Box/KVM.pm \
+   lib/Rex/Box/VBox.pm \
+   lib/Rex/Commands.pm \
+   lib/Rex/Commands/Augeas.pm \
    lib/Rex/Commands/Box.pm \
    lib/Rex/Commands/Cloud.pm \
    lib/Rex/Commands/Cron.pm \
@@ -38,6 +45,7 @@ for x in lib/Rex/Commands/Cloud.pm \
    lib/Rex/Commands/Notify.pm \
    lib/Rex/Commands/Partition.pm \
    lib/Rex/Commands/Pkg.pm \
+   lib/Rex/Commands/PkgConf.pm \
    lib/Rex/Commands/Process.pm \
    lib/Rex/Commands/Rsync.pm \
    lib/Rex/Commands/Run.pm \
@@ -50,20 +58,16 @@ for x in lib/Rex/Commands/Cloud.pm \
    lib/Rex/Commands/Upload.pm \
    lib/Rex/Commands/User.pm \
    lib/Rex/Commands/Virtualization.pm \
-   lib/Rex/Box/Base.pm \
-   lib/Rex/Box/Amazon.pm \
-   lib/Rex/Box/VBox.pm \
-   lib/Rex/Virtualization/VBox.pm \
-   lib/Rex/Virtualization/LibVirt.pm \
-   lib/Rex/Virtualization/Docker.pm \
    lib/Rex/FS/File.pm \
-   lib/Rex/Commands.pm \
    lib/Rex/Hardware.pm \
+   lib/Rex/Logger.pm \
    lib/Rex/Task.pm \
    lib/Rex/Template.pm \
-   lib/Rex/Logger.pm \
+   lib/Rex/Test/Base.pm \
    lib/Rex/Transaction.pm \
-   lib/Rex.pm \
+   lib/Rex/Virtualization/Docker.pm \
+   lib/Rex/Virtualization/LibVirt.pm \
+   lib/Rex/Virtualization/VBox.pm \
 
    do
 
@@ -87,11 +91,11 @@ for x in lib/Rex/Commands/Cloud.pm \
                   | sed -e "s/<\/code>//g" \
                   | sed -e "s/<pre>/<div class=\"btn btn-default copy-button pull-right\" data-clipboard-target=\"clipboardCOUNTER\">Copy to clipboard<\/div>\n<pre><code class=\"perl\" id=\"clipboardCOUNTER\">/" \
                   | perl -pe's:(?<=clipboard)(COUNTER):int($count++/2):e' \
-                  | sed -e "s/<dl>/<ul>/g" \
+                  | sed -e "s/<dl/<ul/g" \
                   | sed -e "s/<\/dl>/<\/ul>/g" \
                   | sed -e "s/<dd>//g" \
                   | sed -e "s/<\/dd>//g" \
-                  | sed -e "s/<dt>/<li>/g" \
+                  | sed -e "s/<dt/<li/g" \
                   | sed -e "s/<\/dt>/<\/li>/g" \
                   | sed -e "s/<\/pre>/<\/code><\/pre>/" \
                   | sed -e "s/<p><a name=\"__index__\"><\/a><\/p>/<h1>TABLE OF CONTENTS<\/h1>/" \
@@ -103,14 +107,12 @@ for x in lib/Rex/Commands/Cloud.pm \
                   | perl -lpe "s/<a href=\"\/api\/Rex\/Commands\/([^\.]+)\.html\">/<a href=\"\/api\/Rex\/Commands\/\$1.pm.html\">/g" \
                   | perl -lpe "s/the (Rex::Commands::[a-zA-Z0-9]+) manpage/\$1/g" \
                   | perl -lpe "s/<strong><a name=\"[^\"]+\" class=\"item\">(.*?)<\/a><\/strong>/<strong>\$1<\/strong>/g" \
-                  | perl -le '$/= undef; $content = <>; my ($title) = ($content =~ m/<h2>NAME<\/h2>\n<p>([^>]+)<\/p>/msi); $content =~ s/\{\{TITLE\}\}/$title/; print $content;' \
-                  | perl -le '$/ = undef; $content = <>; my ($desc) = ($content =~ m/<h2>DESCRIPTION<\/h2>\s*<p>([^>]+)<\/p>/msi); $content =~ s/\{\{DESC\}\}/$desc/; print $content;' \
+                  | perl -le '$/= undef; $content = <>; my ($title) = ($content =~ m/<h1[^>]+>NAME<\/h1>\s*<p>([^>]+)<\/p>/msi); $content =~ s/\{\{TITLE\}\}/$title/; print $content;' \
+                  | perl -le '$/ = undef; $content = <>; my ($desc) = ($content =~ m/<h1[^>]+>DESCRIPTION<\/h1>\s*<p>([^>]+)<\/p>/msi); $content =~ s/\{\{DESC\}\}/$desc/; print $content;' \
                   | perl -lpe "s|\{PATH\}|$RELPATH|g" \
                   | perl -lpe 's|<a href=".+?&quot">(.+?)&quot</a>;|$1&quot;|g' \
                   | perl -lpe 's|&quot;|"|g'
-      
+
          ) > doc/html/${x/lib\//}.html.ep
 
    done
-
-

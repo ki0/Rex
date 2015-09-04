@@ -25,27 +25,45 @@ package Rex::Config;
 use strict;
 use warnings;
 
+# VERSION
+
 use File::Spec;
 use Rex::Logger;
 use YAML;
 use Data::Dumper;
+use Rex::Require;
 
 our (
-  $user,            $password,              $port,
-  $timeout,         $max_connect_fails,     $password_auth,
-  $key_auth,        $krb5_auth,             $public_key,
-  $private_key,     $parallelism,           $log_filename,
-  $log_facility,    $sudo_password,         $ca_file,
-  $ca_cert,         $ca_key,                $path,
-  $no_path_cleanup, $set_param,             $environment,
-  $connection_type, $distributor,           $template_function,
-  $SET_HANDLER,     $HOME_CONFIG,           $HOME_CONFIG_YAML,
-  %SSH_CONFIG_FOR,  $sudo_without_locales,  $sudo_without_sh,
-  $no_tty,          $source_global_profile, $source_profile,
-  %executor_for,    $allow_empty_groups,    $use_server_auth,
-  $tmp_dir,         %openssh_opt,           $use_cache,
-  $cache_type,      $use_sleep_hack,        $report_type,
-  $do_reporting,    $say_format,            $exec_autodie
+  $user,                     $password,
+  $port,                     $timeout,
+  $max_connect_fails,        $password_auth,
+  $key_auth,                 $krb5_auth,
+  $public_key,               $private_key,
+  $parallelism,              $log_filename,
+  $log_facility,             $sudo_password,
+  $ca_file,                  $ca_cert,
+  $ca_key,                   $path,
+  $no_path_cleanup,          $set_param,
+  $environment,              $connection_type,
+  $distributor,              $template_function,
+  $SET_HANDLER,              $HOME_CONFIG,
+  $HOME_CONFIG_YAML,         %SSH_CONFIG_FOR,
+  $sudo_without_locales,     $sudo_without_sh,
+  $no_tty,                   $source_global_profile,
+  $source_profile,           %executor_for,
+  $allow_empty_groups,       $use_server_auth,
+  $tmp_dir,                  %openssh_opt,
+  $use_cache,                $cache_type,
+  $use_sleep_hack,           $report_type,
+  $do_reporting,             $say_format,
+  $exec_autodie,             $verbose_run,
+  $disable_taskname_warning, $proxy_command,
+  $task_call_by_method,      $fallback_auth,
+  $register_cmdb_template,   $check_service_exists,
+  $set_no_append,            $use_net_openssh_if_present,
+  $use_template_ng,          $use_rex_kvm_agent,
+  $autodie,
+
 );
 
 # some defaults
@@ -55,6 +73,105 @@ our (
   ruby   => "ruby",
   bash   => "bash",
 );
+
+sub set_autodie {
+  my $class = shift;
+  $autodie = shift;
+}
+
+sub get_autodie {
+  return $autodie;
+}
+
+sub set_use_net_openssh_if_present {
+  my $class = shift;
+  $use_net_openssh_if_present = shift;
+}
+
+sub get_use_net_openssh_if_present {
+  return $use_net_openssh_if_present;
+}
+
+sub set_use_rex_kvm_agent {
+  my $class = shift;
+  $use_rex_kvm_agent = shift;
+}
+
+sub get_use_rex_kvm_agent {
+  return $use_rex_kvm_agent;
+}
+
+sub set_use_template_ng {
+  my $class = shift;
+  $use_template_ng = shift;
+}
+
+sub get_use_template_ng {
+  return $use_template_ng;
+}
+
+sub set_set_no_append {
+  my $class = shift;
+  $set_no_append = shift;
+}
+
+sub get_set_no_append {
+  return $set_no_append;
+}
+
+sub set_check_service_exists {
+  my $class = shift;
+  $check_service_exists = shift;
+}
+
+sub get_check_service_exists {
+  return $check_service_exists;
+}
+
+sub set_register_cmdb_template {
+  my $class = shift;
+  $register_cmdb_template = shift;
+}
+
+sub get_register_cmdb_template {
+  return $register_cmdb_template;
+}
+
+sub set_fallback_auth {
+  my $class = shift;
+  $fallback_auth = [@_];
+}
+
+sub get_fallback_auth {
+  return $fallback_auth;
+}
+
+sub set_task_call_by_method {
+  my $class = shift;
+  $task_call_by_method = shift;
+}
+
+sub get_task_call_by_method {
+  return $task_call_by_method;
+}
+
+sub set_disable_taskname_warning {
+  my $class = shift;
+  $disable_taskname_warning = shift;
+}
+
+sub get_disable_taskname_warning {
+  return $disable_taskname_warning;
+}
+
+sub set_verbose_run {
+  my $class = shift;
+  $verbose_run = shift;
+}
+
+sub get_verbose_run {
+  return $verbose_run;
+}
 
 sub set_exec_autodie {
   my $class = shift;
@@ -154,14 +271,17 @@ sub get_sudo_without_sh {
 }
 
 sub set_openssh_opt {
-  my ( $class, $key, $val ) = @_;
-  if ( !defined $val ) {
-    $openssh_opt{$key} = undef;
-    delete $openssh_opt{$key};
-    return;
-  }
+  my ( $class, %opt ) = @_;
 
-  $openssh_opt{$key} = $val;
+  for my $key ( keys %opt ) {
+    if ( !defined $opt{$key} ) {
+      $openssh_opt{$key} = undef;
+      delete $openssh_opt{$key};
+      next;
+    }
+
+    $openssh_opt{$key} = $opt{$key};
+  }
 }
 
 sub get_openssh_opt {
@@ -194,8 +314,8 @@ sub get_executor_for {
 }
 
 sub set_tmp_dir {
-  my ($class, $dir) = @_;
-  if($class eq "Rex::Config") {
+  my ( $class, $dir ) = @_;
+  if ( $class eq "Rex::Config" ) {
     $tmp_dir = $dir;
   }
   else {
@@ -225,10 +345,10 @@ sub get_tmp_dir {
       }
       my ($out) =
         $exec->exec("perl -MFile::Spec -le 'print File::Spec->tmpdir'");
-      chomp $out;
-      $out =~ s/[\r\n]//gms;
 
       if ( $? == 0 && $out ) {
+        $out =~ s/[\r\n]//gms;
+
         $cache->set( "tmpdir", $out );
         return $out;
       }
@@ -314,6 +434,11 @@ sub has_user {
 
 sub get_user {
   my $class = shift;
+
+  if ( exists $ENV{REX_USER} ) {
+    return $ENV{REX_USER};
+  }
+
   if ($user) {
     return $user;
   }
@@ -323,6 +448,11 @@ sub get_user {
 
 sub get_password {
   my $class = shift;
+
+  if ( exists $ENV{REX_PASSWORD} ) {
+    return $ENV{REX_PASSWORD};
+  }
+
   return $password;
 }
 
@@ -340,8 +470,32 @@ sub get_port {
   return $port;
 }
 
+sub set_proxy_command {
+  my $class = shift;
+  $proxy_command = shift;
+}
+
+sub get_proxy_command {
+  my $class = shift;
+  my $param = {@_};
+
+  if ( exists $param->{server}
+    && exists $SSH_CONFIG_FOR{ $param->{server} }
+    && exists $SSH_CONFIG_FOR{ $param->{server} }->{proxycommand} )
+  {
+    return $SSH_CONFIG_FOR{ $param->{server} }->{proxycommand};
+  }
+
+  return $proxy_command;
+}
+
 sub get_sudo_password {
   my $class = shift;
+
+  if ( exists $ENV{REX_SUDO_PASSWORD} ) {
+    return $ENV{REX_SUDO_PASSWORD};
+  }
+
   if ($sudo_password) {
     return $sudo_password;
   }
@@ -396,14 +550,23 @@ sub set_krb5_auth {
 }
 
 sub get_password_auth {
+  if ( exists $ENV{REX_AUTH_TYPE} && $ENV{REX_AUTH_TYPE} eq "pass" ) {
+    return 1;
+  }
   return $password_auth;
 }
 
 sub get_key_auth {
+  if ( exists $ENV{REX_AUTH_TYPE} && $ENV{REX_AUTH_TYPE} eq "key" ) {
+    return 1;
+  }
   return $key_auth;
 }
 
 sub get_krb5_auth {
+  if ( exists $ENV{REX_AUTH_TYPE} && $ENV{REX_AUTH_TYPE} eq "krb5" ) {
+    return 1;
+  }
   return $krb5_auth;
 }
 
@@ -413,15 +576,16 @@ sub set_public_key {
 }
 
 sub has_public_key {
-  return $public_key;
+  return get_public_key();
 }
 
 sub get_public_key {
+  if ( exists $ENV{REX_PUBLIC_KEY} ) { return $ENV{REX_PUBLIC_KEY}; }
   if ($public_key) {
     return $public_key;
   }
 
-  return undef;
+  return;
 }
 
 sub set_private_key {
@@ -430,15 +594,16 @@ sub set_private_key {
 }
 
 sub has_private_key {
-  return $private_key;
+  return get_private_key();
 }
 
 sub get_private_key {
+  if ( exists $ENV{REX_PRIVATE_KEY} ) { return $ENV{REX_PRIVATE_KEY}; }
   if ($private_key) {
     return $private_key;
   }
 
-  return undef;
+  return;
 }
 
 sub set_parallelism {
@@ -546,6 +711,23 @@ sub get_ssh_config_public_key {
 
 sub get_connection_type {
   my $class = shift;
+
+  if ( $^O !~ m/^MSWin/ && !$connection_type && $use_net_openssh_if_present ) {
+    my $has_net_openssh = 0;
+    eval {
+      Net::OpenSSH->require;
+      Net::SFTP::Foreign->require;
+      $has_net_openssh = 1;
+      1;
+    };
+
+    if ($has_net_openssh) {
+      Rex::Logger::debug(
+        "Found Net::OpenSSH and Net::SFTP::Foreign - using it as default");
+      $connection_type = "OpenSSH";
+    }
+  }
+
   return $connection_type || "SSH";
 }
 
@@ -582,6 +764,17 @@ sub set_template_function {
 sub get_template_function {
   if ( ref($template_function) eq "CODE" ) {
     return $template_function;
+  }
+
+  if ( Rex::Template::NG->is_loadable && get_use_template_ng() ) {
+
+    # new template engine
+    return sub {
+      my ( $content, $template_vars ) = @_;
+      Rex::Template::NG->require;
+      my $t = Rex::Template::NG->new;
+      return $t->parse( $content, %{$template_vars} );
+    };
   }
 
   return sub {
@@ -630,19 +823,24 @@ sub set {
     return &{ $SET_HANDLER->{$var} }(@_);
   }
 
-  if ( ref($data) eq "HASH" ) {
-    if ( !ref( $set_param->{$var} ) ) {
-      $set_param->{$var} = {};
-    }
-    for my $key ( keys %{$data} ) {
-      $set_param->{$var}->{$key} = $data->{$key};
-    }
-  }
-  elsif ( ref($data) eq "ARRAY" ) {
-    push( @{ $set_param->{$var} }, @{$data} );
+  if ($set_no_append) {
+    $set_param->{$var} = $data;
   }
   else {
-    $set_param->{$var} = $data;
+    if ( ref($data) eq "HASH" ) {
+      if ( !ref( $set_param->{$var} ) ) {
+        $set_param->{$var} = {};
+      }
+      for my $key ( keys %{$data} ) {
+        $set_param->{$var}->{$key} = $data->{$key};
+      }
+    }
+    elsif ( ref($data) eq "ARRAY" ) {
+      push( @{ $set_param->{$var} }, @{$data} );
+    }
+    else {
+      $set_param->{$var} = $data;
+    }
   }
 }
 

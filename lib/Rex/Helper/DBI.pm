@@ -8,9 +8,13 @@ package Rex::Helper::DBI;
 
 use strict;
 use warnings;
-use DBI;
 
-use String::Escape 'string2hash';
+# VERSION
+
+BEGIN {
+  use Rex::Require;
+  DBI->require;
+}
 
 my %db_connections;
 

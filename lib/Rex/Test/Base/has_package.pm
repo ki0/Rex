@@ -9,6 +9,8 @@ package Rex::Test::Base::has_package;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex -base;
 use base qw(Rex::Test::Base);
 use Data::Dumper;
@@ -26,28 +28,20 @@ sub new {
 }
 
 sub run_test {
-  my ( $self, $pkg, $version ) = @_;
-  my @packages = installed_packages;
+  my ( $self, $package, $version ) = @_;
 
-  for my $p (@packages) {
-    if ( $p->{name} eq $pkg ) {
-      if ($version) {
-        if ( $p->{version} eq $version ) {
-          $self->ok( 1, "Found package $pkg in version $version." );
-          return 1;
-        }
-      }
-      else {
-        $self->ok( 1, "Found package $pkg" );
-        return 1;
-      }
-    }
+  my $pkg = Rex::Pkg->get;
+
+  if ( $pkg->is_installed( $package, { version => $version } ) ) {
+    $self->ok( 1,
+      "Found package $package" . ( $version ? " at version $version" : "" ) );
+    return 1;
   }
-
-  $self->ok( 0,
-    "Found package $pkg" . ( $version ? " in version $version" : "" ) );
-
-  return 0;
+  else {
+    $self->ok( 0,
+      "Found package $package" . ( $version ? " at version $version" : "" ) );
+    return 0;
+  }
 }
 
 1;

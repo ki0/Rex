@@ -9,6 +9,8 @@ package Rex::Interface::Exec::Sudo;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Config;
 use Rex::Interface::Exec::Local;
 use Rex::Interface::Exec::SSH;
@@ -55,14 +57,15 @@ sub exec {
     $exec = Rex::Interface::Exec->create("Local");
     $file = Rex::Interface::File->create("Local");
   }
-  $shell = Rex::Interface::Shell->create("Sh");    # we're using sh for sudo
+  $shell = Rex::Interface::Shell->create("Sh"); # we're using sh for sudo
 
 ######## envs setzen. aber erst nachdem wir wissen ob wir sh forcen duerfen
   # if(exists $option->{env}) {
   #   $shell->set_environment($option->{env});
   # }
 
-  my $sudo_password = task->get_sudo_password;
+  my $sudo_password = (
+    defined task() ? task->get_sudo_password : Rex::Config->get_sudo_password );
   my $enc_pw;
   my $random_file = "";
 
@@ -101,7 +104,9 @@ EOF
     $enc_pw = "";
   }
 
-  my $sudo_options     = Rex::get_current_connection()->{sudo_options};
+  #my $sudo_options     = Rex::get_current_connection()->{sudo_options};
+  my $sudo_options =
+    Rex::get_current_connection_object()->get_current_sudo_options;
   my $sudo_options_str = "";
   if ( exists $sudo_options->{user} ) {
     $sudo_options_str .= " -u " . $sudo_options->{user};

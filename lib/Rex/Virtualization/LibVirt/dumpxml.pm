@@ -9,6 +9,8 @@ package Rex::Virtualization::LibVirt::dumpxml;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Helper::Run;
 
@@ -30,10 +32,10 @@ sub execute {
 
   my $xml;
 
-  my $dumpxml = i_run "virsh -c $uri dumpxml $vmname";
+  my $dumpxml = i_run "virsh -c $uri dumpxml '$vmname'";
 
   if ( $? != 0 ) {
-    die("Error running virsh dumpxml $vmname");
+    die("Error running virsh dumpxml '$vmname'");
   }
   return XMLin($dumpxml);
 }

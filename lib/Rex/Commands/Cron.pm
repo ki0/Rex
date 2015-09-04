@@ -40,12 +40,15 @@ package Rex::Commands::Cron;
 use strict;
 use warnings;
 
+# VERSION
+
 require Rex::Exporter;
 use base qw(Rex::Exporter);
 use vars qw(@EXPORT);
 use Carp;
 
 use Rex::Cron;
+use Data::Dumper;
 
 @EXPORT = qw(cron cron_entry);
 
@@ -181,7 +184,7 @@ This example will add a cronjob running on minute 1, 5, 19 and 40. Every hour an
     };
  };
 
-This example will add a cronjob only running on the 1st, 3rd and 5th day of a month. But only when these days are monday or wednesday. And only in January and May. To the 11th and 23th hour. And to the 1st and 5th minute.
+This example will add a cronjob running on the 1st, 3rd and 5th day of January and May, but only when it's a Monday or Wednesday. On those days, the job will run when the hour is 11 or 23, and the minute is 1 or 5 (in other words at 11:01, 11:05, 23:01 and 23:05).
 
  task "addcron", "server1", sub {
     cron add => "root", {
@@ -196,7 +199,7 @@ This example will add a cronjob only running on the 1st, 3rd and 5th day of a mo
 
 Delete a cronjob.
 
-This example will delete the 4th cronjob. It starts counting by zero (0).
+This example will delete the 4th cronjob. Counting starts with zero (0).
 
  task "delcron", "server1", sub {
     cron delete => "root", 3;
@@ -222,7 +225,7 @@ sub cron {
   my ( $action, $user, $config, @more ) = @_;
 
   my $c = Rex::Cron->create();
-  $c->read_user_cron($user);    # this must always be the first action
+  $c->read_user_cron($user); # this must always be the first action
 
   if ( $action eq "list" ) {
     return $c->list_jobs;
@@ -232,9 +235,9 @@ sub cron {
     if ( $c->add( %{$config} ) ) {
       my $rnd_file = $c->write_cron;
       $c->activate_user_cron( $rnd_file, $user );
-      return 1;                 # something changed
+      return 1;              # something changed
     }
-    return 0;                   # nothing changed
+    return 0;                # nothing changed
   }
 
   elsif ( $action eq "delete" ) {

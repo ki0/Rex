@@ -10,7 +10,7 @@ Rex::Commands::Fs - Filesystem commands
 
 =head1 DESCRIPTION
 
-With this module you can do file system tasks like creating a directory, removing files, move files, and more.
+With this module you can do file system tasks like creating a directory, deleting files, moving files, and more.
 
 =head1 SYNOPSIS
 
@@ -51,6 +51,8 @@ package Rex::Commands::Fs;
 use strict;
 use warnings;
 
+# VERSION
+
 require Rex::Exporter;
 use Data::Dumper;
 use Fcntl;
@@ -69,7 +71,7 @@ use base qw(Rex::Exporter);
 @EXPORT = qw(list_files ls
   unlink rm rmdir mkdir stat readlink symlink ln rename mv chdir cd cp
   chown chgrp chmod
-  is_file is_dir is_readable is_writeable is_writable
+  is_file is_dir is_readable is_writeable is_writable is_symlink
   df du
   mount umount
   glob);
@@ -81,7 +83,7 @@ use vars qw(%file_handles);
 This function list all entries (files, directories, ...) in a given directory and returns a array.
 
  task "ls-etc", "server01", sub {
-   my @tmp_files = grep { /\.tmp$/ } list_files("/etc");
+   my @tmp_files = grep { /\.tmp$/ } list_files("/etc");
  };
 
 This command will not be reported.
@@ -190,7 +192,7 @@ sub unlink {
       }
 
       my $tmp_path = Rex::Config->get_tmp_dir;
-      if ( $file !~ m/^\Q$tmp_path\E[\/\\][a-z]+\.tmp$/ ) {    # skip tmp rex files
+      if ( $file !~ m/^\Q$tmp_path\E[\/\\][a-z]+\.tmp$/ ) { # skip tmp rex files
         Rex::get_current_connection()->{reporter}
           ->report( changed => 1, message => "File $file removed." );
       }
@@ -331,7 +333,7 @@ sub mkdir {
 
     &chown( $owner, $dir ) if $owner;
     &chgrp( $group, $dir ) if $group;
-    &chmod( $mode, $dir ) if $owner;
+    &chmod( $mode, $dir ) if $mode;
   }
   else {
     my @splitted_dir;
@@ -370,7 +372,7 @@ sub mkdir {
 
         &chown( $owner, $str_part ) if $owner;
         &chgrp( $group, $str_part ) if $group;
-        &chmod( $mode, $str_part ) if $owner;
+        &chmod( $mode, $str_part ) if $mode;
       }
     }
   }
@@ -432,7 +434,7 @@ sub chown {
 
   $file = resolv_path($file);
   my $fs = Rex::Interface::Fs->create;
-  return $fs->chown( $user, $file, @opts ) or die("Can't chown $file");
+  $fs->chown( $user, $file, @opts ) or die("Can't chown $file");
 }
 
 =item chgrp($group, $file)
@@ -456,7 +458,7 @@ sub chgrp {
   $file = resolv_path($file);
 
   my $fs = Rex::Interface::Fs->create;
-  return $fs->chgrp( $group, $file, @opts ) or die("Can't chgrp $file");
+  $fs->chgrp( $group, $file, @opts ) or die("Can't chgrp $file");
 }
 
 =item chmod($mode, $file)
@@ -480,7 +482,7 @@ sub chmod {
   $file = resolv_path($file);
 
   my $fs = Rex::Interface::Fs->create;
-  return $fs->chmod( $mode, $file, @opts ) or die("Can't chmod $file");
+  $fs->chmod( $mode, $file, @opts ) or die("Can't chmod $file");
 }
 
 =item stat($file)
@@ -932,7 +934,7 @@ Mount devices.
    mount "/dev/sda5", "/tmp";
    mount "/dev/sda6", "/mnt/sda6",
           ensure    => "present",
-          fs        => "ext3",
+          type      => "ext3",
           options   => [qw/noatime async/],
           on_change => sub { say "device mounted"; };
    #
@@ -940,15 +942,17 @@ Mount devices.
  
    mount "/dev/sda6", "/mnt/sda6",
           ensure     => "persistent",
-          fs         => "ext3",
+          type       => "ext3",
           options    => [qw/noatime async/],
           on_change  => sub { say "device mounted"; };
  
    # to umount a device
-  mount "/dev/sda6", "/mnt/sda6",
+   mount "/dev/sda6", "/mnt/sda6",
           ensure => "absent";
  
  };
+
+In order to be more aligned with `mount` terminology, the previously used `fs` option has been deprecated in favor of the `type` option. The `fs` option is still supported and works as previously, but Rex prints a warning if it is being used. There's also a warning if both `fs` and `type` options are specified, and in this case `type` will be used.
 
 =cut
 
@@ -956,10 +960,29 @@ sub mount {
   my ( $device, $mount_point, @options ) = @_;
   my $option = {@options};
 
+  if ( defined $option->{fs} ) {
+    Rex::Logger::info(
+      'The `fs` option of the mount command has been deprecated in favor of the `type` option. Please update your task.',
+      'warn'
+    );
+
+    if ( !defined $option->{type} ) {
+      $option->{type} = $option->{fs};
+    }
+    else {
+      Rex::Logger::info(
+        'Both `fs` and `type` options have been specified for mount command. Preferring `type`.',
+        'warn'
+      );
+    }
+  }
+
+  delete $option->{fs};
+
   Rex::get_current_connection()->{reporter}
     ->report_resource_start( type => "mount", name => "$mount_point" );
 
-  $option->{ensure} ||= "present";    # default
+  $option->{ensure} ||= "present"; # default
 
   if ( $option->{ensure} eq "absent" ) {
     &umount(
@@ -987,7 +1010,7 @@ sub mount {
 
     my $cmd = sprintf(
       "mount %s %s %s %s",
-      $option->{"fs"} ? "-t " . $option->{"fs"} : "",    # file system
+      $option->{type} ? "-t " . $option->{type} : "", # file system
       $option->{"options"}
       ? " -o " . join( ",", @{ $option->{"options"} } )
       : "",
@@ -1006,14 +1029,14 @@ sub mount {
     }
 
     if ( exists $option->{persistent} ) {
-      if ( !exists $option->{fs} ) {
+      if ( !exists $option->{type} ) {
 
         # no fs given, so get it from mount output
         my ( $out, $err ) = $exec->exec("mount");
         my @output = split( /\r?\n/, $out );
         my ($line) = grep { /^$device/ } @output;
         my ( $_d, $_o, $_p, $_t, $fs_type ) = split( /\s+/, $line );
-        $option->{fs} = $fs_type;
+        $option->{type} = $fs_type;
 
         my ($_options) = ( $line =~ m/\((.+?)\)/ );
         $option->{options} = $_options;
@@ -1042,11 +1065,11 @@ sub mount {
           push( @new_content,
                 "LABEL="
               . $option->{label}
-              . "\t$mount_point\t$option->{fs}\t$mountops\t0 0\n" );
+              . "\t$mount_point\t$option->{type}\t$mountops\t0 0\n" );
         }
         else {
           push( @new_content,
-            "$device\t$mount_point\t$option->{fs}\t$mountops\t0 0\n" );
+            "$device\t$mount_point\t$option->{type}\t$mountops\t0 0\n" );
         }
       }
       else {
@@ -1054,11 +1077,12 @@ sub mount {
           push( @new_content,
                 "LABEL="
               . $option->{label}
-              . "\t$mount_point\t$option->{fs}\t$option->{options}\t0 0\n" );
+              . "\t$mount_point\t$option->{type}\t$option->{options}\t0 0\n" );
         }
         else {
           push( @new_content,
-            "$device\t$mount_point\t$option->{fs}\t$option->{options}\t0 0\n" );
+            "$device\t$mount_point\t$option->{type}\t$option->{options}\t0 0\n"
+          );
         }
       }
 
@@ -1130,12 +1154,10 @@ sub umount {
   }
 
   if ($already_mounted) {
+    $exec->exec("umount $mount_point");
+    if ( $? != 0 ) { die("Umount failed of $mount_point"); }
     $changed = 1;
   }
-
-  $exec->exec("umount $mount_point");
-
-  if ( $? != 0 ) { die("Umount failed of $mount_point"); }
 
   if ($changed) {
     if ( exists $option{on_change} && ref $option{on_change} eq "CODE" ) {

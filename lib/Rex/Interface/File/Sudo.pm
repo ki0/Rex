@@ -1,13 +1,15 @@
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
-# 
+#
 # vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
-  
+
 package Rex::Interface::File::Sudo;
-  
+
 use strict;
 use warnings;
+
+# VERSION
 
 use Fcntl;
 use File::Basename;
@@ -18,20 +20,20 @@ use Rex::Helper::Path;
 use base qw(Rex::Interface::File::Base);
 
 sub new {
-  my $that = shift;
+  my $that  = shift;
   my $proto = ref($that) || $that;
-  my $self = $proto->SUPER::new(@_);
+  my $self  = $proto->SUPER::new(@_);
 
-  bless($self, $proto);
+  bless( $self, $proto );
 
   return $self;
 }
 
 sub open {
-  my ($self, $mode, $file) = @_;
+  my ( $self, $mode, $file ) = @_;
 
-  if(my $ssh = Rex::is_ssh()) {
-    if(ref $ssh eq "Net::OpenSSH") {
+  if ( my $ssh = Rex::is_ssh() ) {
+    if ( ref $ssh eq "Net::OpenSSH" ) {
       $self->{fh} = Rex::Interface::File->create("OpenSSH");
     }
     else {
@@ -42,13 +44,17 @@ sub open {
     $self->{fh} = Rex::Interface::File->create("Local");
   }
 
-  $self->{mode} = $mode;
-  $self->{file} = $file;
+  # always use current logged in user for sudo fs operations
+  Rex::get_current_connection_object()->push_sudo_options( {} );
+
+  $self->{mode}    = $mode;
+  $self->{file}    = $file;
   $self->{rndfile} = get_tmp_file;
-  if($self->_fs->is_file($file)) {
+  if ( $self->_fs->is_file($file) ) {
+
     # resolving symlinks
-    while(my $link = $self->_fs->readlink($file)) {
-      if($link !~ m/^\//) {
+    while ( my $link = $self->_fs->readlink($file) ) {
+      if ( $link !~ m/^\// ) {
         $file = dirname($file) . "/" . $link;
       }
       else {
@@ -56,31 +62,34 @@ sub open {
       }
       $link = $self->_fs->readlink($link);
     }
-    $self->{file_stat} = { $self->_fs->stat($self->{file}) };
+    $self->{file_stat} = { $self->_fs->stat( $self->{file} ) };
 
-    $self->_fs->cp($file, $self->{rndfile});
-    $self->_fs->chmod(600, $self->{rndfile});
-    $self->_fs->chown(Rex::Commands::connection->get_auth_user, $self->{rndfile});
+    $self->_fs->cp( $file, $self->{rndfile} );
+    $self->_fs->chmod( 600, $self->{rndfile} );
+    $self->_fs->chown( Rex::Commands::connection->get_auth_user,
+      $self->{rndfile} );
   }
 
-  $self->{fh}->open($mode, $self->{rndfile});
+  $self->{fh}->open( $mode, $self->{rndfile} );
+
+  Rex::get_current_connection_object()->pop_sudo_options();
 
   return $self->{fh};
 }
 
 sub read {
-  my ($self, $len) = @_;
+  my ( $self, $len ) = @_;
 
   return $self->{fh}->read($len);
 }
 
 sub write {
-  my ($self, $buf) = @_;
+  my ( $self, $buf ) = @_;
   $self->{fh}->write($buf);
 }
 
 sub seek {
-  my ($self, $pos) = @_;
+  my ( $self, $pos ) = @_;
   $self->{fh}->seek($pos);
 }
 
@@ -89,23 +98,31 @@ sub close {
 
   return unless $self->{fh};
 
-  if(exists $self->{mode} && ( $self->{mode} eq ">" || $self->{mode} eq ">>") ) {
+  # always use current logged in user for sudo fs operations
+  Rex::get_current_connection_object()->push_sudo_options( {} );
+
+  if ( exists $self->{mode}
+    && ( $self->{mode} eq ">" || $self->{mode} eq ">>" ) )
+  {
+
     my $exec = Rex::Interface::Exec->create;
-    if($self->{file_stat}) {
-      my %stat = $self->_fs->stat($self->{file});
-      $self->_fs->chmod($stat{mode}, $self->{rndfile});
-      $self->_fs->chown($stat{uid}, $self->{rndfile});
-      $self->_fs->chgrp($stat{gid}, $self->{rndfile});
+    if ( $self->{file_stat} ) {
+      my %stat = $self->_fs->stat( $self->{file} );
+      $self->_fs->chmod( $stat{mode}, $self->{rndfile} );
+      $self->_fs->chown( $stat{uid}, $self->{rndfile} );
+      $self->_fs->chgrp( $stat{gid}, $self->{rndfile} );
     }
-    $self->_fs->rename($self->{rndfile}, $self->{file});
+    $self->_fs->rename( $self->{rndfile}, $self->{file} );
 
     #$exec->exec("cat " . $self->{rndfile} . " >'" . $self->{file} . "'");
   }
-  
+
   $self->{fh}->close;
   $self->{fh} = undef;
-  
-  $self->_fs->unlink($self->{rndfile});
+
+  $self->_fs->unlink( $self->{rndfile} );
+
+  Rex::get_current_connection_object()->pop_sudo_options();
 
   $self = undef;
 }

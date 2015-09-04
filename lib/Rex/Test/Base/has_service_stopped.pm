@@ -9,6 +9,8 @@ package Rex::Test::Base::has_service_stopped;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex -base;
 use base qw(Rex::Test::Base);
 
@@ -26,7 +28,7 @@ sub new {
 
 sub run_test {
   my ( $self, $service ) = @_;
-  $self->ok(service($service, "status") == 0, "Service $service stopped.");
+  $self->ok( service( $service, "status" ) == 0, "Service $service stopped." );
 }
 
 1;

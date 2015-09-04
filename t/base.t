@@ -1,4 +1,23 @@
-use Test::More tests => 166;
+use strict;
+use warnings;
+
+use Test::More tests => 167;
+
+my %have_mods = (
+  'Net::SSH2'             => 1,
+  'Net::OpenSSH'          => 1,
+  'DBI'                   => 1,
+  'IPC::Shareable'        => 1,
+  'Parallel::ForkManager' => 1,
+);
+
+for my $m ( keys %have_mods ) {
+  my $have_mod = 1;
+  eval "use $m;";
+  if ($@) {
+    $have_mods{$m} = 0;
+  }
+}
 
 use_ok 'Rex::Batch';
 use_ok 'Rex::Interface::Cache';
@@ -7,7 +26,48 @@ use_ok 'Rex::CLI';
 use_ok 'Rex::Commands::Box';
 use_ok 'Rex::Commands::Cloud';
 use_ok 'Rex::Commands::Cron';
-use_ok 'Rex::Commands::DB';
+
+SKIP: {
+  diag "DBI module not installed. Database access won't be available."
+    unless $have_mods{'DBI'};
+  skip "DBI module not installed. Database access won't be available.", 3
+    unless $have_mods{'DBI'};
+  use_ok 'Rex::Commands::DB';
+  use_ok 'Rex::Group::Lookup::DBI';
+  use_ok 'Rex::Helper::DBI';
+}
+
+SKIP: {
+  diag
+    "SSH module not found. You need Net::SSH2 or Net::OpenSSH module to connect to servers via SSH."
+    unless ( $have_mods{'Net::SSH2'} or $have_mods{'Net::OpenSSH'} );
+  skip
+    "SSH module not found. You need Net::SSH2 or Net::OpenSSH module to connect to servers via SSH.",
+    1
+    unless ( $have_mods{'Net::SSH2'} or $have_mods{'Net::OpenSSH'} );
+  use_ok 'Rex::Interface::Connection::SSH';
+}
+
+SKIP: {
+  diag "You need IPC::Shareable module to use Rex::Output modules."
+    unless $have_mods{'IPC::Shareable'};
+  skip "You need IPC::Shareable module to use Rex::Output modules.", 2
+    unless $have_mods{'IPC::Shareable'};
+  use_ok 'Rex::Output::JUnit';
+  use_ok 'Rex::Output';
+}
+
+SKIP: {
+  diag
+    "You need Parallel::ForkManager to use Parallel_ForkManager distribution method."
+    unless $have_mods{'Parallel::ForkManager'};
+  skip
+    "You need Parallel::ForkManager to use Parallel_ForkManager distribution method.",
+    1
+    unless $have_mods{'Parallel::ForkManager'};
+  use_ok 'Rex::TaskList::Parallel_ForkManager';
+}
+
 use_ok 'Rex::Commands::Download';
 use_ok 'Rex::Commands::File';
 use_ok 'Rex::Commands::Fs';
@@ -23,6 +83,7 @@ use_ok 'Rex::Commands::Pkg';
 use_ok 'Rex::Commands::Process';
 use_ok 'Rex::Commands::Run';
 use_ok 'Rex::Commands::SCM';
+
 use_ok 'Rex::Commands::Service';
 use_ok 'Rex::Commands::SimpleCheck';
 use_ok 'Rex::Commands::Sysctl';
@@ -33,15 +94,16 @@ use_ok 'Rex::Commands::Sync';
 use_ok 'Rex::Commands';
 use_ok 'Rex::Config';
 use_ok 'Rex::Exporter';
+
 use_ok 'Rex::File::Parser::Data';
 use_ok 'Rex::File::Parser::Ini';
+
 use_ok 'Rex::Fork::Manager';
 use_ok 'Rex::Fork::Task';
 use_ok 'Rex::FS::File';
 use_ok 'Rex::Group::Entry::Server';
 use_ok 'Rex::Group::Lookup::File';
 use_ok 'Rex::Group::Lookup::YAML';
-use_ok 'Rex::Group::Lookup::DBI';
 use_ok 'Rex::Group';
 use_ok 'Rex::Hardware::Host';
 use_ok 'Rex::Hardware::Kernel';
@@ -59,14 +121,13 @@ use_ok 'Rex::Helper::Hash';
 use_ok 'Rex::Helper::SSH2::Expect';
 use_ok 'Rex::Helper::SSH2';
 use_ok 'Rex::Helper::System';
-use_ok 'Rex::Helper::DBI';
 use_ok 'Rex::Helper::UserAgent';
 use_ok 'Rex::Interface::Connection::Base';
 use_ok 'Rex::Interface::Connection::Fake';
 use_ok 'Rex::Interface::Connection::HTTP';
 use_ok 'Rex::Interface::Connection::HTTPS';
 use_ok 'Rex::Interface::Connection::Local';
-use_ok 'Rex::Interface::Connection::SSH';
+
 use_ok 'Rex::Interface::Connection';
 use_ok 'Rex::Interface::Exec::Base';
 use_ok 'Rex::Interface::Exec::HTTP';
@@ -90,8 +151,6 @@ use_ok 'Rex::Interface::Fs::SSH';
 use_ok 'Rex::Interface::Fs::Sudo';
 use_ok 'Rex::Interface::Fs';
 use_ok 'Rex::Logger';
-use_ok 'Rex::Output::JUnit';
-use_ok 'Rex::Output';
 use_ok 'Rex::Pkg::ALT';
 use_ok 'Rex::Pkg::Debian';
 use_ok 'Rex::Pkg::FreeBSD';
@@ -167,7 +226,15 @@ use_ok 'Rex::Test::Base::has_service_stopped';
 
 use Data::Dumper;
 my @hosts = Rex::Commands::evaluate_hostname("web[01..10]");
-ok(join(",", @hosts) eq "web01,web02,web03,web04,web05,web06,web07,web08,web09,web10", "host evaluation 1");
+ok(
+  join( ",", @hosts ) eq
+    "web01,web02,web03,web04,web05,web06,web07,web08,web09,web10",
+  "host evaluation 1"
+);
 
 @hosts = Rex::Commands::evaluate_hostname("web[01..10]:5000");
-ok(join(",", @hosts) eq "web01:5000,web02:5000,web03:5000,web04:5000,web05:5000,web06:5000,web07:5000,web08:5000,web09:5000,web10:5000", "host evaluation 2");
+ok(
+  join( ",", @hosts ) eq
+    "web01:5000,web02:5000,web03:5000,web04:5000,web05:5000,web06:5000,web07:5000,web08:5000,web09:5000,web10:5000",
+  "host evaluation 2"
+);

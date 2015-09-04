@@ -24,7 +24,7 @@ You can find examples and howtos on L<http://rexify.org/>
 
 =item * IRC: irc.freenode.net #rex
 
-=item * Bug Tracker: L<https://github.com/krimdomu/Rex/issues>
+=item * Bug Tracker: L<https://github.com/RexOps/Rex/issues>
 
 =item * Twitter: L<http://twitter.com/jfried83>
 
@@ -32,14 +32,17 @@ You can find examples and howtos on L<http://rexify.org/>
 
 =head1 SYNOPSIS
 
+ use strict;
+ use warnings;
+
  user "root";
  password "ch4ngem3";
- 
+
  desc "Show Unix version";
  task "uname", sub {
     say run "uname -a";
  };
- 
+
  bash# rex -H "server[01..10]" uname
 
 See L<Rex::Commands> for a list of all commands you can use.
@@ -55,22 +58,28 @@ package Rex;
 use strict;
 use warnings;
 
-use Net::SSH2;
-use Rex::Logger;
-use Rex::Interface::Cache;
-use Data::Dumper;
-use Rex::Interface::Connection;
-use Cwd qw(getcwd);
-use Rex::Config;
-use Rex::Helper::Array;
-use Rex::Report;
-use Rex::Notify;
-use File::Basename;
+# VERSION
 
-our ( @EXPORT, $VERSION, @CONNECTION_STACK, $GLOBAL_SUDO, $MODULE_PATHS,
+BEGIN {
+  use Rex::Logger;
+  use Rex::Interface::Cache;
+  use Data::Dumper;
+  use Rex::Interface::Connection;
+  use Cwd qw(getcwd);
+  use Rex::Config;
+  use Rex::Helper::Array;
+  use Rex::Report;
+  use Rex::Notify;
+  use Rex::Require;
+  use File::Basename;
+  eval { Net::SSH2->require; };
+}
+
+our ( @EXPORT, @CONNECTION_STACK, $GLOBAL_SUDO, $MODULE_PATHS,
   $WITH_EXIT_STATUS );
 
-$VERSION = "0.46.3";
+$WITH_EXIT_STATUS = 1; # since 0.50 activated by default
+
 my $cur_dir;
 
 BEGIN {
@@ -98,8 +107,10 @@ BEGIN {
     push( @INC, "$cur_dir/lib/perl/lib/perl5" );
     if ( $^O =~ m/^MSWin/ ) {
       my ($special_win_path) = grep { m/\/MSWin32\-/ } @INC;
-      my $mswin32_path = basename $special_win_path;
-      push( @INC, "$cur_dir/lib/perl/lib/perl5/$mswin32_path" );
+      if ( defined $special_win_path ) {
+        my $mswin32_path = basename $special_win_path;
+        push( @INC, "$cur_dir/lib/perl/lib/perl5/$mswin32_path" );
+      }
     }
   }
 
@@ -118,7 +129,7 @@ BEGIN {
 
 }
 
-my $home = $ENV{'HOME'};
+my $home = $ENV{'HOME'} || "/tmp";
 if ( $^O =~ m/^MSWin/ ) {
   $home = $ENV{'USERPROFILE'};
 }
@@ -159,7 +170,7 @@ sub search_module_path {
         return;
       }
 
-      open( my $fh, $file );
+      open( my $fh, "<", $file );
       return $fh;
     }
   }
@@ -252,6 +263,10 @@ sub get_current_connection {
   $CONNECTION_STACK[-1];
 }
 
+sub get_current_connection_object {
+  return Rex::get_current_connection()->{conn};
+}
+
 =item is_ssh
 
 Returns 1 if the current connection is a ssh connection. 0 if not.
@@ -302,7 +317,7 @@ sub is_sudo {
   }
 
   if ( $CONNECTION_STACK[-1] ) {
-    return $CONNECTION_STACK[-1]->{"use_sudo"};
+    return $CONNECTION_STACK[-1]->{conn}->get_current_use_sudo;
   }
 
   return 0;
@@ -345,7 +360,7 @@ Use this function to create a connection if you use Rex as a library.
  use Rex;
  use Rex::Commands::Run;
  use Rex::Commands::Fs;
- 
+
  Rex::connect(
    server    => "remotehost",
    user      => "root",
@@ -353,11 +368,11 @@ Use this function to create a connection if you use Rex as a library.
    private_key => "/path/to/private/key/file",
    public_key  => "/path/to/public/key/file",
  );
- 
+
  if(is_file("/foo/bar")) {
    print "Do something...\n";
  }
- 
+
  my $output = run("uptime");
 
 =cut
@@ -374,7 +389,8 @@ sub connect {
   my $cached_conn = $param->{"cached_connection"};
 
   if ( !$cached_conn ) {
-    my $conn = Rex::Interface::Connection->create("SSH");
+    my $conn =
+      Rex::Interface::Connection->create(Rex::Config::get_connection_type);
 
     $conn->connect(
       user     => $user,
@@ -386,7 +402,7 @@ sub connect {
     );
 
     unless ( $conn->is_connected ) {
-      die("Connetion error or refused.");
+      die("Connection error or refused.");
     }
 
     # push a remote connection
@@ -450,6 +466,9 @@ sub import {
 
   my ( $register_to, $file, $line ) = caller;
 
+  # use Net::OpenSSH if present (default without feature flag)
+  Rex::Config->set_use_net_openssh_if_present(1);
+
   if ( $what eq "-base" || $what eq "base" || $what eq "-feature" ) {
     require Rex::Commands;
     Rex::Commands->import( register_in => $register_to );
@@ -504,6 +523,7 @@ sub import {
 
     require Rex::Commands::User;
     Rex::Commands::User->import( register_in => $register_to );
+
   }
 
   if ( $what eq "-feature" || $what eq "feature" ) {
@@ -511,7 +531,6 @@ sub import {
     if ( !ref($addition1) ) {
       $addition1 = [$addition1];
     }
-
     for my $add ( @{$addition1} ) {
 
       my $found_feature = 0;
@@ -532,17 +551,65 @@ sub import {
         }
       }
 
-      # remove default task auth
-      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.31 ) {
-        Rex::Logger::debug("activating featureset >= 0.31");
-        Rex::TaskList->create()->set_default_auth(0);
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 1.0 ) {
+        Rex::Logger::debug("Disabling usage of a tty");
+        Rex::Config->set_no_tty(1);
         $found_feature = 1;
       }
 
-      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.35 ) {
-        Rex::Logger::debug("activating featureset >= 0.35");
-        $Rex::Commands::REGISTER_SUB_HASH_PARAMTER = 1;
-        $found_feature                             = 1;
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.56 ) {
+        Rex::Logger::debug("Activating autodie.");
+        Rex::Config->set_autodie(1);
+        $found_feature = 1;
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.55 ) {
+        Rex::Logger::debug("Using Net::OpenSSH if present.");
+        Rex::Config->set_use_net_openssh_if_present(1);
+        $found_feature = 1;
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.54 ) {
+        Rex::Logger::debug("Add service check.");
+        Rex::Config->set_check_service_exists(1);
+
+        Rex::Logger::debug("Setting set() to not append data.");
+        Rex::Config->set_set_no_append(1);
+
+        $found_feature = 1;
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.53 ) {
+        Rex::Logger::debug("Registering CMDB as template variables.");
+        Rex::Config->set_register_cmdb_template(1);
+        $found_feature = 1;
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.51 ) {
+        Rex::Logger::debug("activating featureset >= 0.51");
+        Rex::Config->set_task_call_by_method(1);
+
+        require Rex::Constants;
+        Rex::Constants->import( register_in => $register_to );
+
+        require Rex::CMDB;
+        Rex::CMDB->import( register_in => $register_to );
+
+        Rex::Commands::set(
+          cmdb => {
+            type => "YAML",
+            path => [
+              "cmdb/{operatingsystem}/{hostname}.yml",
+              "cmdb/{operatingsystem}/default.yml",
+              "cmdb/{environment}/{hostname}.yml",
+              "cmdb/{environment}/default.yml",
+              "cmdb/{hostname}.yml",
+              "cmdb/default.yml",
+            ],
+          }
+        );
+
+        $found_feature = 1;
       }
 
       if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.40 ) {
@@ -550,6 +617,44 @@ sub import {
         $Rex::Template::BE_LOCAL = 1;
         $Rex::WITH_EXIT_STATUS   = 1;
         $found_feature           = 1;
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.35 ) {
+        Rex::Logger::debug("activating featureset >= 0.35");
+        $Rex::Commands::REGISTER_SUB_HASH_PARAMETER = 1;
+        $found_feature                              = 1;
+      }
+
+      # remove default task auth
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 0.31 ) {
+        Rex::Logger::debug("activating featureset >= 0.31");
+        Rex::TaskList->create()->set_default_auth(0);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "no_autodie" ) {
+        Rex::Logger::debug("disabling autodie");
+        Rex::Config->set_autodie(0);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "rex_kvm_agent" ) {
+        Rex::Logger::debug(
+          "Activating experimental support for rex-kvm-agent.");
+        Rex::Config->set_use_rex_kvm_agent(1);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "template_ng" ) {
+        Rex::Logger::debug("Activating experimental new template engine.");
+        Rex::Config->set_use_template_ng(1);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "register_cmdb_top_scope" ) {
+        Rex::Logger::debug("Registering CMDB as template variables.");
+        Rex::Config->set_register_cmdb_template(1);
+        $found_feature = 1;
       }
 
       if ( $add eq "no_local_template_vars" ) {
@@ -575,6 +680,12 @@ sub import {
         Rex::Logger::debug(
           "Using sudo without locales. this _will_ break things!");
         Rex::Config->set_sudo_without_locales(1);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "tty" ) {
+        Rex::Logger::debug("Enabling pty usage for ssh");
+        Rex::Config->set_no_tty(0);
         $found_feature = 1;
       }
 
@@ -645,6 +756,18 @@ sub import {
         $found_feature = 1;
       }
 
+      if ( $add eq "verbose_run" ) {
+        Rex::Logger::debug("Enabling verbose_run feature");
+        Rex::Config->set_verbose_run(1);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "disable_taskname_warning" ) {
+        Rex::Logger::debug("Enabling disable_taskname_warning feature");
+        Rex::Config->set_disable_taskname_warning(1);
+        $found_feature = 1;
+      }
+
       if ( $found_feature == 0 ) {
         Rex::Logger::info(
           "You tried to load a feature ($add) that doesn't exists in your Rex version. Please update.",
@@ -662,6 +785,10 @@ sub import {
     Rex::Config->set_do_reporting(1);
   }
 
+  if ( exists $ENV{REX_SUDO} && $ENV{REX_SUDO} ) {
+    Rex::global_sudo(1);
+  }
+
   # we are always strict
   strict->import;
 }
@@ -670,103 +797,12 @@ sub import {
 
 =head1 CONTRIBUTORS
 
-Many thanks to the contributors for their work (alphabetical order).
+Many thanks to the contributors for their work. Please see L<CONTRIBUTORS|https://github.com/RexOps/Rex/blob/master/CONTRIBUTORS> file for a complete list.
 
-=over 4
+=head1 LICENSE
 
-=item Alexandr Ciornii
-
-=item Anders Ossowicki
-
-=item Andrej Zverev
-
-=item Boris Däppen
-
-=item Chris Steigmeier
-
-=item complefor
-
-=item Cuong Manh Le
-
-=item Daniel Baeurer
-
-=item David Golovan
-
-=item Dominik Danter
-
-=item Dominik Schulz
-
-=item eduardoj
-
-=item fanyeren
-
-=item Ferenc Erki
-
-=item Fran Rodriguez
-
-=item Franky Van Liedekerke
-
-=item Gilles Gaudin, for writing a french howto
-
-=item Hiroaki Nakamura
-
-=item Jean Charles Passard
-
-=item Jean-Marie Renouard
-
-=item Jeen Lee
-
-=item Jonathan Delgado
-
-=item Jon Gentle
-
-=item Joris
-
-=item Jose Luis Martinez
-
-=item Kasim Tuman
-
-=item Keedi Kim
-
-=item Laird Liu
-
-=item Mario Domgoergen
-
-=item Naveed Massjouni
-
-=item Niklas Larsson
-
-=item Nikolay Fetisov
-
-=item Nils Domrose
-
-=item Peter H. Ezetta
-
-=item Piotr Karbowski
-
-=item Rao Chenlin (Chenryn)
-
-=item RenatoCRON
-
-=item Renee Bäcker
-
-=item Samuele Tognini
-
-=item Sascha Guenther
-
-=item Simon Bertrang
-
-=item Stephane Benoit
-
-=item Sven Dowideit
-
-=item Tianon Gravi
-
-=item Tokuhiro Matsuno
-
-=item Tomohiro Hosaka
-
-=back
+Rex is a free software, licensed under:
+The Apache License, Version 2.0, January 2004
 
 =cut
 

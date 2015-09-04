@@ -1,6 +1,6 @@
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
-# 
+#
 # vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
 
@@ -8,6 +8,8 @@ package Rex::Service::Mageia::systemd;
 
 use strict;
 use warnings;
+
+# VERSION
 
 use Rex::Commands::Run;
 use Rex::Logger;
@@ -17,11 +19,11 @@ use Rex::Service::Redhat::systemd;
 use base qw(Rex::Service::Redhat::systemd);
 
 sub new {
-  my $that = shift;
+  my $that  = shift;
   my $proto = ref($that) || $that;
-  my $self = $proto->SUPER::new(@_);
+  my $self  = $proto->SUPER::new(@_);
 
-  bless($self, $proto);
+  bless( $self, $proto );
 
   return $self;
 }

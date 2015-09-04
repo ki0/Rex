@@ -9,6 +9,8 @@ package Rex::User::Linux;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 require Rex::Commands;
 use Rex::Commands::Run;
@@ -22,10 +24,13 @@ use Rex::Interface::Exec;
 use Rex::Helper::Path;
 use JSON::XS;
 
+use Rex::User::Base;
+use base qw(Rex::User::Base);
+
 sub new {
   my $that  = shift;
   my $proto = ref($that) || $that;
-  my $self  = {@_};
+  my $self  = $proto->SUPER::new(@_);
 
   bless( $self, $proto );
 
@@ -114,7 +119,7 @@ sub create_user {
   }
 
   if ( !$use_default_home_policy ) {
-    if ( !defined $uid ) {    #useradd mode
+    if ( !defined $uid ) { #useradd mode
       if ($should_create_home) {
         $cmd .= " -m ";
       }
@@ -122,7 +127,7 @@ sub create_user {
         $cmd .= " -M ";
       }
     }
-    else {                    #usermod mode
+    else {                 #usermod mode
       $cmd .= " -m " if ( exists $data->{home} );
     }
   }
@@ -156,9 +161,7 @@ sub create_user {
 
   my $old_pw_md5 = md5("/etc/passwd");
   my $old_sh_md5 = "";
-  eval {
-    $old_sh_md5 = md5("/etc/shadow");
-  };
+  eval { $old_sh_md5 = md5("/etc/shadow"); };
 
   # only run the cmd if needed
   if ($run_cmd) {
@@ -215,10 +218,7 @@ sub create_user {
 
   my $new_pw_md5 = md5("/etc/passwd");
   my $new_sh_md5 = "";
-  eval {
-    $new_sh_md5 = md5("/etc/shadow");
-  };
-
+  eval { $new_sh_md5 = md5("/etc/shadow"); };
 
   if ( $new_pw_md5 eq $old_pw_md5 && $new_sh_md5 eq $old_sh_md5 ) {
     return {
@@ -360,6 +360,59 @@ sub get_user {
     shell    => $data->[8],
     expire   => exists $data->[9] ? $data->[9] : 0,
   );
+}
+
+sub lock_password {
+  my ( $self, $user ) = @_;
+
+  # Is the password already locked?
+  my $result = i_run "passwd --status $user";
+
+  die "Unexpected result from passwd: $result"
+    unless $result =~ /^$user\s+(L|NP|P)\s+/;
+
+  if ( $1 eq 'L' ) {
+
+    # Already locked
+    return { changed => 0 };
+  }
+  else {
+    my $ret = i_run "passwd --lock $user";
+    if ( $? != 0 ) {
+      die("Error locking account $user: $ret");
+    }
+    return {
+      changed => 1,
+      ret     => $ret,
+    };
+  }
+}
+
+sub unlock_password {
+  my ( $self, $user ) = @_;
+
+  # Is the password already unlocked?
+  my $result = i_run "passwd --status $user";
+
+  die "Unexpected result from passwd: $result"
+    unless $result =~ /^$user\s+(L|NP|P)\s+/;
+
+  if ( $1 eq 'P' ) {
+
+    # Already unlocked
+    return { changed => 0 };
+  }
+  else {
+    # Capture error string on failure (eg. account has no password)
+    my ( $ret, $err ) = i_run "passwd --unlock $user", sub { @_ };
+    if ( $? != 0 ) {
+      die("Error unlocking account $user: $err");
+    }
+    return {
+      changed => 1,
+      ret     => $ret,
+    };
+  }
 }
 
 sub create_group {

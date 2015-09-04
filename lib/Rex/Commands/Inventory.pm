@@ -6,19 +6,19 @@
 
 =head1 NAME
 
-Rex::Commands::Inventory - Inventor your systems
+Rex::Commands::Inventory - Get an inventory of your systems
 
 =head1 DESCRIPTION
 
 With this module you can get an inventory of your system.
 
-All these functions will not be reported. These functions don't change things.
+All these functions will not be reported. These functions don't modify anything.
 
 =head1 SYNOPSIS
 
  use Data::Dumper;
  task "inventory", "remoteserver", sub {
-   my $inventory = inventor();
+   my $inventory = inventory();
    print Dumper($inventory);
  };
 
@@ -33,6 +33,8 @@ package Rex::Commands::Inventory;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Inventory;
 
 require Rex::Exporter;
@@ -44,9 +46,9 @@ use base qw(Rex::Exporter);
 
 =item inventory
 
-This function returns an hashRef of all gathered hardware. Use the Data::Dumper module to see its structure.
+This function returns a hashRef of all gathered hardware. Use the Data::Dumper module to see its structure.
 
- task "get-inventory", sub {
+ task "get_inventory", sub {
    my $inventory = inventory();
    print Dumper($inventory);
  };

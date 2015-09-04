@@ -9,6 +9,8 @@ package Rex::Commands::Virtualization;
 use strict;
 use warnings;
 
+# VERSION
+
 require Rex::Exporter;
 use base qw(Rex::Exporter);
 use vars qw(@EXPORT);
@@ -18,12 +20,11 @@ use Rex::Virtualization;
 
 @EXPORT = qw(vm);
 
-
 sub vm {
-  my ($action, $vmname, @opt) = @_;
+  my ( $action, $vmname, @opt ) = @_;
 
   my $vm_obj = Rex::Virtualization->create();
-  return $vm_obj->execute($action, $vmname, @opt);
+  return $vm_obj->execute( $action, $vmname, @opt );
 }
 
 =head1 NAME
@@ -83,7 +84,7 @@ All these functions are not idempotent.
 
 =item vm($action => $name, %option)
 
-This module exports only the I<vm> function. You can manage everything with this function.
+This module only exports the I<vm> function. You can manage everything with this function.
 
 =back
 
@@ -178,6 +179,13 @@ This is the same as above, but with all options in use.
           slot    => "0x03",
           function => "0x0",
         },
+      },
+    ],
+    serial_devices => [
+      {
+        type => 'tcp',
+        host => '127.0.0.1',
+        port => 12345,
       },
     ];
 
@@ -317,6 +325,5 @@ Currently you can only modify the memory.
  vm hypervisor => "capabilities";
 
 =cut
-
 
 1;

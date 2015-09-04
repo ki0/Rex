@@ -9,6 +9,8 @@ package Rex::Virtualization::LibVirt::hypervisor;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Helper::Run;
 
@@ -55,7 +57,7 @@ sub execute {
 
   for my $line ( @{ $xml->{'capabilities'}->{'guest'} } ) {
 
-    next if ($line->{'arch'}->{'name'} ne "x86_64");
+    next if ( $line->{'arch'}->{'name'} ne "x86_64" );
 
     $ret{ $line->{'arch'}->{'name'} } = 'true'
       if defined( $line->{'arch'}->{'name'} );

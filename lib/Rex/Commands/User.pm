@@ -40,6 +40,8 @@ package Rex::Commands::User;
 use strict;
 use warnings;
 
+# VERSION
+
 require Rex::Exporter;
 use Rex::Commands::Run;
 use Rex::Commands::Fs;
@@ -53,7 +55,7 @@ use base qw(Rex::Exporter);
 
 @EXPORT = qw(create_user delete_user get_uid get_user user_list
   user_groups create_group delete_group get_group get_gid
-  account
+  account lock_password unlock_password
 );
 
 =item account($name, %option)
@@ -61,16 +63,17 @@ use base qw(Rex::Exporter);
 Manage user account.
 
  account "krimdomu",
-   ensure      => "present",  # default
-   uid         => 509,
-   home        => '/root',
-   comment     => 'User Account',
-   expire      => '2011-05-30',
-   groups      => [ 'root', '...' ],
-   password    => 'blahblah',
-   system      => 1,
-   create_home => TRUE,
-   ssh_key     => "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQChUw...";
+   ensure         => "present",  # default
+   uid            => 509,
+   home           => '/root',
+   comment        => 'User Account',
+   expire         => '2011-05-30',
+   groups         => [ 'root', '...' ],
+   password       => 'blahblah',
+   crypt_password => '*', # on Linux, OpenBSD and NetBSD
+   system         => 1,
+   create_home    => TRUE,
+   ssh_key        => "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQChUw...";
 
 There is also a no_create_home option similar to create_home but doing the
 opposite. If both used, create_home takes precedence as it the preferred option
@@ -78,6 +81,10 @@ to specify home directory creation policy.
 
 If none of them are specified, Rex follows the remote system's home creation
 policy.
+
+The crypt_password option specifies the encrypted value as found in
+/etc/shadow; on Linux special values are '*' and '!' which mean
+'disabled password' and 'disabled login' respectively.
 
 =cut
 
@@ -212,7 +219,7 @@ sub get_user {
   Rex::User->get()->get_user(@_);
 }
 
-=item user_group($user)
+=item user_groups($user)
 
 Returns group membership about $user.
 
@@ -262,6 +269,61 @@ sub delete_user {
   }
 
   Rex::User->get()->rm_user( $user, $data );
+}
+
+=item lock_password($user)
+
+Lock the password of a user account. Currently this is only
+available on Linux (see passwd --lock).
+
+=cut
+
+sub lock_password {
+  Rex::User->get()->lock_password(@_);
+}
+
+=item unlock_password($user)
+
+Unlock the password of a user account. Currently this is only
+available on Linux (see passwd --unlock).
+
+=cut
+
+sub unlock_password {
+  Rex::User->get()->unlock_password(@_);
+}
+
+# internal wrapper for resource style calling
+# will be called from Rex::Commands::group() function
+sub group_resource {
+  my @params = @_;
+
+  my $name   = shift @params;
+  my %option = @params;
+
+  if ( ref $name ne "ARRAY" ) {
+    $name = [$name];
+  }
+  $option{ensure} ||= "present";
+
+  for my $group_name ( @{$name} ) {
+
+    Rex::get_current_connection()->{reporter}
+      ->report_resource_start( type => "group", name => $group_name );
+
+    if ( $option{ensure} eq "present" ) {
+      Rex::Commands::User::create_group( $group_name, %option );
+    }
+    elsif ( $option{ensure} eq "absent" ) {
+      Rex::Commands::User::delete_group($group_name);
+    }
+    else {
+      die "Unknown 'ensure' value. Valid values are 'present' and 'absent'.";
+    }
+
+    Rex::get_current_connection()->{reporter}
+      ->report_resource_end( type => "group", name => $group_name );
+  }
 }
 
 =item create_group($group, {})

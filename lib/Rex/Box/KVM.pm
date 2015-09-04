@@ -16,7 +16,7 @@ This is a Rex/Boxes module to use KVM VMs. You need to have libvirt installed.
 
 To use this module inside your Rexfile you can use the following commands.
 
- use Rex::Commands::Boxes;
+ use Rex::Commands::Box;
  set box => "KVM";
  
  task "prepare_box", sub {
@@ -65,6 +65,8 @@ See also the Methods of Rex::Box::Base. This module inherits all methods of it.
 
 package Rex::Box::KVM;
 
+use strict;
+use warnings;
 use Data::Dumper;
 use Rex::Box::Base;
 use Rex::Commands -no => [qw/auth/];
@@ -73,7 +75,12 @@ use Rex::Commands::Fs;
 use Rex::Commands::Virtualization;
 use Rex::Commands::SimpleCheck;
 
-use LWP::UserAgent;
+# VERSION
+
+BEGIN {
+  LWP::UserAgent->use;
+}
+
 use Time::HiRes qw(tv_interval gettimeofday);
 use File::Basename qw(basename);
 
@@ -127,7 +134,30 @@ sub import_vm {
     my $filename = basename( $self->{url} );
 
     Rex::Logger::info("Importing VM ./tmp/$filename");
-    vm import => $self->{name}, file => "./tmp/$filename", %{$self};
+
+    my @options = (
+      import => $self->{name},
+      file   => "./tmp/$filename",
+      %{$self},
+    );
+
+    if (Rex::Config::get_use_rex_kvm_agent) {
+      my $tcp_port = int( rand(40000) ) + 10000;
+
+      push @options, 'serial_devices',
+        [
+        {
+          type => 'tcp',
+          host => '127.0.0.1',
+          port => $tcp_port,
+        },
+        ];
+
+      Rex::Logger::info(
+        "Binding a serial device to TCP port $tcp_port for rex-kvm-agent");
+    }
+
+    vm @options;
 
     #unlink "./tmp/$filename";
   }
@@ -148,29 +178,11 @@ sub provision_vm {
     @tasks = @{ $self->{__tasks} };
   }
 
-  my $server = $self->ip;
-
-  my ( $ip, $port ) = split( /:/, $server );
-  $port ||= 22;
-
-  print "Waiting for SSH to come up on $ip:$port.";
-  while ( !is_port_open( $ip, $port ) ) {
-    print ".";
-    sleep 1;
-  }
-
-  my $i = 5;
-  while ( $i != 0 ) {
-    sleep 1;
-    print ".";
-    $i--;
-  }
-
-  print "\n";
+  $self->wait_for_ssh();
 
   for my $task (@tasks) {
     Rex::TaskList->create()->get_task($task)->set_auth( %{ $self->{__auth} } );
-    Rex::TaskList->create()->get_task($task)->run($server);
+    Rex::TaskList->create()->get_task($task)->run( $self->ip );
   }
 }
 

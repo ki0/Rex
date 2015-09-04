@@ -28,11 +28,12 @@ All these functions are not idempotent.
 
 =cut
 
-
 package Rex::Commands::SimpleCheck;
 
 use strict;
 use warnings;
+
+# VERSION
 
 use IO::Socket;
 
@@ -47,19 +48,22 @@ use vars qw(@EXPORT);
 Check if something is listening on port $port of $ip.
 
 =cut
+
 sub is_port_open {
 
-  my ($ip, $port, $type) = @_;
+  my ( $ip, $port, $type ) = @_;
 
   $type ||= "tcp";
 
-  my $socket = IO::Socket::INET->new(PeerAddr => $ip,
-                      PeerPort => $port,
-                      Proto   => $type,
-                      Timeout  => 2,
-                      Type    => SOCK_STREAM);
+  my $socket = IO::Socket::INET->new(
+    PeerAddr => $ip,
+    PeerPort => $port,
+    Proto    => $type,
+    Timeout  => 2,
+    Type     => SOCK_STREAM
+  );
 
-  if($socket) {
+  if ($socket) {
     close $socket;
     return 1;
   }

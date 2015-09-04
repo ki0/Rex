@@ -9,6 +9,8 @@ package Rex::Virtualization::LibVirt::import;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex::Logger;
 use Rex::Helper::Run;
 use Rex::Commands::Fs;
@@ -38,6 +40,11 @@ sub execute {
 
   my $format = "qcow2";
 
+  my @serial_devices;
+  if ( exists $opt{serial_devices} ) {
+    @serial_devices = @{ $opt{serial_devices} };
+  }
+
   if ( $opt{file} =~ m/\.ova$/ ) {
     Rex::Logger::debug("Importing ova file. Try to convert with qemu-img");
     $file =~ s/\.[a-z]+$//;
@@ -46,8 +53,7 @@ sub execute {
 
     Rex::Logger::debug(
       "converting $cwd/tmp/$vmdk[0] -> $cwd/storage/$file.qcow2");
-    i_run
-      "qemu-img convert -O qcow2 $cwd/tmp/$vmdk[0] $cwd/storage/$file.qcow2";
+    i_run "qemu-img convert -O qcow2 $cwd/tmp/$vmdk[0] $cwd/$file.qcow2";
 
     if ( $? != 0 ) {
       Rex::Logger::info(
@@ -77,10 +83,21 @@ sub execute {
   }
 
   my @network = values %{ $opt{__network} };
+  if ( scalar @network == 0 ) {
+
+    # create default network
+    push @network,
+      {
+      type    => "network",
+      network => "default",
+      };
+  }
+
   for (@network) {
-    $_->{type} = "bridge"  if ( $_->{type} eq "bridged" );
+    $_->{type} ||= "network";
+    $_->{type} = "bridge" if ( $_->{type} && $_->{type} eq "bridged" );
     $_->{type} = "network" if ( $_->{type} eq "nat" );
-    if($_->{type} eq "network" && ! exists $_->{network}) {
+    if ( $_->{type} eq "network" && !exists $_->{network} ) {
       $_->{network} = "default";
     }
   }
@@ -94,12 +111,15 @@ sub execute {
         driver_type => $format,
       },
     ],
-    network => \@network,
+    network        => \@network,
+    serial_devices => \@serial_devices,
   );
 
-  if(exists $opt{__forward_port}) {
+  if ( exists $opt{__forward_port} ) {
+
     # currently not supported
-    Rex::Logger::info("Port-forwarding is currently not supported for KVM boxes.", "warn");
+    Rex::Logger::info(
+      "Port-forwarding is currently not supported for KVM boxes.", "warn" );
   }
 
 }

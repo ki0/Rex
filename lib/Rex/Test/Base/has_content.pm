@@ -9,6 +9,8 @@ package Rex::Test::Base::has_content;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex -base;
 use base qw(Rex::Test::Base);
 
@@ -26,8 +28,11 @@ sub new {
 
 sub run_test {
   my ( $self, $file, $test ) = @_;
+
+  return $self->ok( 0, "has_content: $file not found" ) unless is_file($file);
+
   my $content = cat $file;
-  $self->ok(($content =~ $test) >= 1, "Content of $file contain $test.");
+  $self->ok( ( $content =~ $test ) >= 1, "Content of $file contain $test." );
 }
 
 1;

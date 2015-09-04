@@ -29,6 +29,8 @@ package Rex::Group::Lookup::DBI;
 use strict;
 use warnings;
 
+# VERSION
+
 use Rex -base;
 use Carp;
 
@@ -70,7 +72,7 @@ use Rex::Helper::DBI;
 =cut
 
 sub groups_dbi {
-  my ( $dsn, %option ) = @_;    # $user, $pass, $sql) = @_;
+  my ( $dsn, %option ) = @_; # $user, $pass, $sql) = @_;
 
   confess "You have to define the sql." if ( !exists $option{sql} );
 

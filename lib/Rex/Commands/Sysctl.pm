@@ -16,7 +16,7 @@ Version <= 1.0: All these functions will not be reported.
 
 All these functions are not idempotent.
 
-This function don't persists the entries in /etc/sysctl.conf.
+This function doesn't persist the entries in /etc/sysctl.conf.
 
 =head1 SYNOPSIS
 
@@ -31,11 +31,12 @@ This function don't persists the entries in /etc/sysctl.conf.
 
 =cut
 
-
 package Rex::Commands::Sysctl;
 
 use strict;
 use warnings;
+
+# VERSION
 
 use Rex::Logger;
 use Rex::Commands::Run;
@@ -63,16 +64,16 @@ If $val is given, then this function will set the sysctl key $key.
 
 sub sysctl {
 
-  my ($key, $val) = @_;
+  my ( $key, $val ) = @_;
 
-  if($val) {
+  if ($val) {
 
     Rex::Logger::debug("Setting sysctl key $key to $val");
     my $ret = run "/sbin/sysctl -n $key";
 
-    if($ret ne $val) {
+    if ( $ret ne $val ) {
       run "/sbin/sysctl -w $key=$val";
-      if($? != 0) {
+      if ( $? != 0 ) {
         die("Sysctl failed $key -> $val");
       }
     }
@@ -84,11 +85,11 @@ sub sysctl {
   else {
 
     my $ret = run "/sbin/sysctl -n $key";
-    if($? == 0) {
+    if ( $? == 0 ) {
       return $ret;
     }
     else {
-      Rex::Logger::info("Error getting sysctl key: $key", "warn");
+      Rex::Logger::info( "Error getting sysctl key: $key", "warn" );
       die("Error getting sysctl key: $key");
     }
 

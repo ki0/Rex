@@ -64,6 +64,8 @@ use strict;
 use warnings;
 use Fcntl;
 
+# VERSION
+
 require Rex::Exporter;
 use Data::Dumper;
 use Rex::Config;
@@ -81,6 +83,7 @@ use Carp;
 use Rex::Interface::Exec;
 use Rex::Interface::File;
 use Rex::Interface::Fs;
+require Rex::CMDB;
 
 use File::Basename qw(dirname basename);
 
@@ -90,7 +93,7 @@ use base qw(Rex::Exporter);
 @EXPORT = qw(file_write file_read file_append
   cat sed
   delete_lines_matching append_if_no_such_line delete_lines_according_to
-  file template
+  file template append_or_amend_line
   extract);
 
 use vars qw(%file_handles);
@@ -103,13 +106,37 @@ Parse a template and return the content.
               name => "test.lan",
               webmaster => 'webmaster@test.lan');
 
+The file name specified is subject to "path_map" processing as documented
+under the file() function to resolve to a physical file name.
+
+In addition to the "path_map" processing, if the B<-E> command line switch
+is used to specify an environment name, existence of a file ending with
+'.<env>' is checked and has precedence over the file without one, if it
+exists. E.g. if rex is started as:
+
+ $ rex -E prod task1
+
+then in task1 defined as:
+
+ task "task1", sub {
+
+    say template("files/etc/ntpd.conf");
+
+ };
+
+will print the content of 'files/etc/ntpd.conf.prod' if it exists.
+
+Note: the appended environment mechanism is always applied, after
+the 'path_map' mechanism, if that is configured.
+
+
 =cut
 
 sub template {
   my ( $file, @params ) = @_;
   my $param;
 
-  if(ref $params[0] eq "HASH") {
+  if ( ref $params[0] eq "HASH" ) {
     $param = $params[0];
   }
   else {
@@ -127,11 +154,12 @@ sub template {
   else {
     $file = resolv_path($file);
 
-    unless($file =~ m/^\// || $file =~ m/^\@/) {
+    unless ( $file =~ m/^\// || $file =~ m/^\@/ ) {
+
       # path is relative and no template
       Rex::Logger::debug("Relativ path $file");
 
-      $file = Rex::Helper::Path::get_file_path($file, caller());
+      $file = Rex::Helper::Path::get_file_path( $file, caller() );
 
       Rex::Logger::debug("New filename: $file");
     }
@@ -143,36 +171,36 @@ sub template {
     # rex -E live ...
     # will first look if files/hosts.tpl.live is available, if not it will
     # use files/hosts.tpl
-    if(-f "$file." . Rex::Config->get_environment) {
+    if ( -f "$file." . Rex::Config->get_environment ) {
       $file = "$file." . Rex::Config->get_environment;
     }
 
-    if(-f $file) {
-      $content = eval { local(@ARGV, $/) = ($file); <>; };
+    if ( -f $file ) {
+      $content = eval { local ( @ARGV, $/ ) = ($file); <>; };
     }
-    elsif($file =~ m/^\@/) {
-      my @caller = caller(0);
-      my $file_path = Rex::get_module_path($caller[0]);
+    elsif ( $file =~ m/^\@/ ) {
+      my @caller    = caller(0);
+      my $file_path = Rex::get_module_path( $caller[0] );
 
-      if(! -f $file_path) {
-        my ($mod_name) = ($caller[0] =~ m/^.*::(.*?)$/);
-        if($mod_name && -f "$file_path/$mod_name.pm") {
+      if ( !-f $file_path ) {
+        my ($mod_name) = ( $caller[0] =~ m/^.*::(.*?)$/ );
+        if ( $mod_name && -f "$file_path/$mod_name.pm" ) {
           $file_path = "$file_path/$mod_name.pm";
         }
-        elsif(-f "$file_path/__module__.pm") {
+        elsif ( -f "$file_path/__module__.pm" ) {
           $file_path = "$file_path/__module__.pm";
         }
-        elsif(-f "$file_path/Module.pm") {
+        elsif ( -f "$file_path/Module.pm" ) {
           $file_path = "$file_path/Module.pm";
         }
-        elsif(-f $caller[1]) {
+        elsif ( -f $caller[1] ) {
           $file_path = $caller[1];
         }
       }
-      my $file_content = eval { local(@ARGV, $/) = ($file_path); <>; };
-      my ($data) = ($file_content =~ m/.*__DATA__(.*)/ms);
-      my $fp = Rex::File::Parser::Data->new(data => [ split(/\n/, $data) ]);
-      my $snippet_to_read = substr($file, 1);
+      my $file_content = eval { local ( @ARGV, $/ ) = ($file_path); <>; };
+      my ($data) = ( $file_content =~ m/.*__DATA__(.*)/ms );
+      my $fp = Rex::File::Parser::Data->new( data => [ split( /\n/, $data ) ] );
+      my $snippet_to_read = substr( $file, 1 );
       $content = $fp->read($snippet_to_read);
     }
     else {
@@ -187,6 +215,23 @@ sub template {
   else {
     delete $param->{__no_sys_info__};
     %template_vars = %{$param};
+  }
+
+  # configuration variables
+  my $config_values = Rex::Config->get_all;
+  for my $key ( keys %{$config_values} ) {
+    if ( !exists $template_vars{$key} ) {
+      $template_vars{$key} = $config_values->{$key};
+    }
+  }
+
+  if ( Rex::CMDB::cmdb_active() && Rex::Config->get_register_cmdb_template ) {
+    my $data = Rex::CMDB::cmdb();
+    for my $key ( keys %{ $data->{value} } ) {
+      if ( !exists $template_vars{$key} ) {
+        $template_vars{$key} = $data->{value}->{$key};
+      }
+    }
   }
 
   return Rex::Config->get_template_function()->( $content, \%template_vars );
@@ -213,7 +258,7 @@ sub _get_std_template_vars {
 
 =item file($file_name, %options)
 
-This function is the successor of I<install file>. Please use this function to upload files to you server.
+This function is the successor of I<install file>. Please use this function to upload files to your server.
 
  task "prepare", "server1", "server2", sub {
    file "/file/on/remote/machine",
@@ -247,7 +292,36 @@ This function is the successor of I<install file>. Please use this function to u
  
  };
 
-If I<source> is relative it will search from the location of your I<Rexfile> or the I<.pm> file if you use Perl packages.
+The I<source> is subject to a path resolution algorithm. This algorithm
+can be configured using the I<set> function to set the value of the
+I<path_map> variable to a hash containing path prefixes as its keys.
+The associated values are arrays listing the prefix replacements in order
+of (decreasing) priority.
+
+  set "path_map", {
+    "files/" => [ "files/{environment}/{hostname}/_root_/",
+                  "files/{environment}/_root_/" ]
+  };
+
+With this configuration, the file "files/etc/ntpd.conf" will be probed for
+in the following locations:
+
+ - files/{environment}/{hostname}/_root_/etc/ntpd.conf
+ - files/{environment}/_root_/etc/ntpd.conf
+ - files/etc/ntpd.conf
+
+Furthermore, if a path prefix matches multiple prefix entries in 'path_map',
+e.g. "files/etc/ntpd.conf" matching both "files/" and "files/etc/", the
+longer matching prefix(es) have precedence over shorter ones. Note that
+keys without a trailing slash (i.e. "files/etc") will be treated as having
+a trailing slash when matching the prefix ("files/etc/"). 
+
+If no file is found using the above procedure and I<source> is relative,
+it will search from the location of your I<Rexfile> or the I<.pm> file if
+you use Perl packages.
+
+All the possible variables ('{environment}', '{hostname}', ...) are documented
+in the CMDB YAML documentation.
 
 This function supports the following hooks:
 
@@ -309,9 +383,12 @@ sub file {
     }
     1;
   } or do {
-    die("Before-Hook failed. Canceling file() action: $@");
+    die("Before hook failed. Cancelling file() action: $@");
   };
   ##############################
+
+  # default: ensure = present
+  $option->{ensure} ||= "present";
 
   Rex::get_current_connection()->{reporter}
     ->report_resource_start( type => "file", name => $file );
@@ -343,7 +420,7 @@ sub file {
     # first upload file to tmp location, to get md5 sum.
     # than we can decide if we need to replace the current (old) file.
 
-    my @splitted_file = split( /\//, $file );
+    my @splitted_file = split( /[\/\\]/, $file );
     my $file_name     = ".rex.tmp." . pop(@splitted_file);
     my $tmp_file_name = (
       $#splitted_file != -1
@@ -363,17 +440,17 @@ sub file {
 
     if ( $new_md5 && $old_md5 && $new_md5 eq $old_md5 ) {
       Rex::Logger::debug(
-        "No need to overwrite exiting file. Old and new files are the same. $old_md5 eq $new_md5."
+        "No need to overwrite existing file. Old and new files are the same. $old_md5 eq $new_md5."
       );
 
       # md5 sums are the same, delete tmp.
       $fs->unlink($tmp_file_name);
-      $need_md5 = 0;    # we don't need to execute on_change hook
+      $need_md5 = 0; # we don't need to execute on_change hook
 
       Rex::get_current_connection()->{reporter}->report(
         changed => 0,
         message =>
-          "No need to overwrite exiting file. Old and new files are the same. $old_md5 eq $new_md5."
+          "No need to overwrite existing file. Old and new files are the same. $old_md5 eq $new_md5."
       );
     }
     else {
@@ -386,7 +463,20 @@ sub file {
       Rex::Hook::run_hook( file => "before_change", @_ );
       ##############################
 
+      if (Rex::is_sudo) {
+        my $current_options =
+          Rex::get_current_connection_object()->get_current_sudo_options;
+        Rex::get_current_connection_object()->push_sudo_options( {} );
+
+        if ( exists $current_options->{user} ) {
+          $fs->chown( "$current_options->{user}:", $tmp_file_name );
+        }
+      }
+
       $fs->rename( $tmp_file_name, $file );
+      Rex::get_current_connection_object()->pop_sudo_options()
+        if (Rex::is_sudo);
+
       $__ret = { changed => 1 };
 
       Rex::get_current_connection()->{reporter}->report(
@@ -432,7 +522,7 @@ sub file {
         ##############################
 
       }
-      else {
+      elsif ( !$__ret->{changed} ) {
         $__ret = { changed => 0 };
         Rex::get_current_connection()->{reporter}->report( changed => 0, );
       }
@@ -490,7 +580,10 @@ sub file {
     }
   }
 
-  if ( !exists $option->{content} && !exists $option->{source} ) {
+  if ( !exists $option->{content}
+    && !exists $option->{source}
+    && $option->{ensure} ne "absent" )
+  {
 
     # no content and no source, so just verify that the file is present
     if ( !$fs->is_file($file) && !$is_directory ) {
@@ -520,47 +613,52 @@ sub file {
     }
   }
 
-  if ($need_md5) {
-    eval { $new_md5 = md5($file); };
+  if ( $option->{ensure} ne "absent" ) {
+
+    if ($need_md5) {
+      eval { $new_md5 = md5($file); };
+    }
+    my %stat_old = $fs->stat($file);
+
+    if ( exists $option->{"mode"} ) {
+      $fs->chmod( $option->{"mode"}, $file );
+    }
+
+    if ( exists $option->{"group"} ) {
+      $fs->chgrp( $option->{"group"}, $file );
+    }
+
+    if ( exists $option->{"owner"} ) {
+      $fs->chown( $option->{"owner"}, $file );
+    }
+
+    my %stat_new = $fs->stat($file);
+
+    if ( %stat_old && %stat_new && $stat_old{mode} ne $stat_new{mode} ) {
+      Rex::get_current_connection()->{reporter}->report(
+        changed => 1,
+        message =>
+          "File-System permissions changed from $stat_old{mode} to $stat_new{mode}.",
+      );
+    }
+
+    if ( %stat_old && %stat_new && $stat_old{uid} ne $stat_new{uid} ) {
+      Rex::get_current_connection()->{reporter}->report(
+        changed => 1,
+        message => "Owner changed from $stat_old{uid} to $stat_new{uid}.",
+      );
+    }
+
+    if ( %stat_old && %stat_new && $stat_old{gid} ne $stat_new{gid} ) {
+      Rex::get_current_connection()->{reporter}->report(
+        changed => 1,
+        message => "Group changed from $stat_old{gid} to $stat_new{gid}.",
+      );
+    }
+
   }
 
-  my %stat_old = $fs->stat($file);
-
-  if ( exists $option->{"mode"} ) {
-    $fs->chmod( $option->{"mode"}, $file );
-  }
-
-  if ( exists $option->{"group"} ) {
-    $fs->chgrp( $option->{"group"}, $file );
-  }
-
-  if ( exists $option->{"owner"} ) {
-    $fs->chown( $option->{"owner"}, $file );
-  }
-
-  my %stat_new = $fs->stat($file);
-
-  if ( $stat_old{mode} ne $stat_new{mode} ) {
-    Rex::get_current_connection()->{reporter}->report(
-      changed => 1,
-      message =>
-        "File-System permissions changed from $stat_old{mode} to $stat_new{mode}.",
-    );
-  }
-
-  if ( $stat_old{uid} ne $stat_new{uid} ) {
-    Rex::get_current_connection()->{reporter}->report(
-      changed => 1,
-      message => "Owner changed from $stat_old{uid} to $stat_new{uid}.",
-    );
-  }
-
-  if ( $stat_old{gid} ne $stat_new{gid} ) {
-    Rex::get_current_connection()->{reporter}->report(
-      changed => 1,
-      message => "Group changed from $stat_old{gid} to $stat_new{gid}.",
-    );
-  }
+  my $on_change_done = 0;
 
   if ($need_md5) {
     unless ( $old_md5 && $new_md5 && $old_md5 eq $new_md5 ) {
@@ -573,6 +671,8 @@ sub file {
 
       &$on_change($file);
 
+      $on_change_done = 1;
+
       Rex::get_current_connection()->{reporter}->report(
         changed => 1,
         message => "Content changed.",
@@ -582,7 +682,11 @@ sub file {
     }
   }
 
-  #### check and run before hook
+  if ( $__ret->{changed} == 1 && $on_change_done == 0 ) {
+    &$on_change($file);
+  }
+
+  #### check and run after hook
   Rex::Hook::run_hook( file => "after", @_, $__ret );
   ##############################
 
@@ -853,7 +957,33 @@ Since 0.42 you can use named parameters as well
 =cut
 
 sub append_if_no_such_line {
-  my $file = shift;
+  _append_or_update( 'append_if_no_such_line', @_ );
+}
+
+=item append_or_amend_line($file, $line, @regexp)
+
+Similar to L<append_if_no_such_line>, but if the line in the regexp is
+found, it will be updated. Otherwise, it will be appended.
+
+ task "update-group", sub {
+   append_or_amend_line "/etc/groups",
+     line  => "mygroup:*:100:myuser3,myuser4",
+     regexp => qr{^mygroup},
+     on_change => sub {
+                say "file was changed, do something.";
+              };
+ };
+
+=cut
+
+sub append_or_amend_line {
+  _append_or_update( 'append_or_amend_line', @_ );
+}
+
+sub _append_or_update {
+  my $action = shift;
+  my $file   = shift;
+
   $file = resolv_path($file);
   my ( $new_line, @m );
 
@@ -861,7 +991,7 @@ sub append_if_no_such_line {
   my ( $option, $on_change );
 
   Rex::get_current_connection()->{reporter}
-    ->report_resource_start( type => "append_if_no_such_line", name => $file );
+    ->report_resource_start( type => $action, name => $file );
 
   eval {
     no warnings;
@@ -900,9 +1030,9 @@ sub append_if_no_such_line {
   $old_md5 = md5($file);
 
   # slow but secure way
-  my @content;
+  my $content;
   eval {
-    @content = split( /\n/, cat($file) );
+    $content = [ split( /\n/, cat($file) ) ];
     1;
   } or do {
     $ret = 1;
@@ -912,25 +1042,29 @@ sub append_if_no_such_line {
     push @m, qr{\Q$new_line\E};
   }
 
-  for my $line (@content) {
+  my $found;
+  for my $line ( 0 .. $#{$content} ) {
     for my $match (@m) {
       if ( ref($match) ne "Regexp" ) {
         $match = qr{$match};
       }
-      if ( $line =~ $match ) {
-        return 0;
+      if ( $content->[$line] =~ $match ) {
+        return 0 if $action eq 'append_if_no_such_line';
+        $content->[$line] = "$new_line";
+        $found = 1;
       }
     }
   }
 
-  push @content, "$new_line\n";
+  push @$content, "$new_line" unless $found;
 
   eval {
     my $fh = file_write $file;
     unless ($fh) {
       die("can't open file for writing");
     }
-    $fh->write( join( "\n", @content ) );
+    $fh->write( join( "\n", @$content ) );
+    $fh->write("\n");
     $fh->close;
     $ret = 0;
     1;
@@ -973,7 +1107,7 @@ sub append_if_no_such_line {
   }
 
   Rex::get_current_connection()->{reporter}
-    ->report_resource_end( type => "append_if_no_such_line", name => $file );
+    ->report_resource_end( type => $action, name => $file );
 }
 
 =item extract($file [, %options])
@@ -1105,7 +1239,9 @@ sub sed {
   }
   else {
     @content = split( /\n/, cat($file) );
-    map { s/$search/$replace/ } @content;
+    for (@content) {
+      s/$search/$replace/;
+    }
   }
 
   my $fs   = Rex::Interface::Fs->create;

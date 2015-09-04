@@ -9,6 +9,8 @@ package Rex::Helper::Path;
 use strict;
 use warnings;
 
+# VERSION
+
 use File::Spec;
 use File::Basename qw(dirname);
 require Exporter;
@@ -17,13 +19,15 @@ use base qw(Exporter);
 use vars qw(@EXPORT);
 use Cwd 'realpath';
 
-require Rex::Commands;
-require Rex::Config;
 require Rex;
+use Rex::Commands;
+require Rex::Config;
 
 use Rex::Interface::Exec;
 
-@EXPORT = qw(get_file_path get_tmp_file resolv_path);
+@EXPORT = qw(get_file_path get_tmp_file resolv_path parse_path);
+
+set "path_map", {};
 
 #
 # CALL: get_file_path("foo.txt", caller());
@@ -34,12 +38,29 @@ sub get_file_path {
 
   $file_name = resolv_path($file_name);
 
+  my $ends_with_slash = 0;
+  if ( $file_name =~ m/\/$/ ) {
+    $ends_with_slash = 1;
+  }
+
+  my $fix_path = sub {
+    my ($path) = @_;
+    $path =~ s:^\./::;
+    if ($ends_with_slash) {
+      if ( $path !~ m/\/$/ ) {
+        return "$path/";
+      }
+    }
+
+    return $path;
+  };
+
   if ( !$caller_package ) {
     ( $caller_package, $caller_file ) = caller();
   }
 
   # check if a file in $BASE overwrites the module file
-  # first get the absoltue path to the rexfile
+  # first get the absolute path to the rexfile
 
   $::rexfile ||= $0;
 
@@ -54,12 +75,41 @@ sub get_file_path {
 
   my $real_path = join( '/', @path_parts );
 
-  if ( -e $file_name ) {
-    return $file_name;
+  my $map_setting = get("path_map");
+
+  my %path_map = (
+    map { ( ( substr( $_, -1 ) eq '/' ) ? $_ : "$_/" ) => $map_setting->{$_} }
+      keys %$map_setting
+  );
+
+  foreach my $prefix (
+    sort { length($b) <=> length($a) }
+    grep { $file_name =~ m/^$_/ } keys %path_map
+    )
+  {
+    foreach my $pattern ( @{ $path_map{$prefix} } ) {
+      my $expansion =
+        File::Spec->catfile( parse_path($pattern),
+        substr( $file_name, length($prefix) ) );
+
+      if ( -e $expansion ) {
+        return $fix_path->($expansion);
+      }
+
+      $expansion = File::Spec->catfile( $real_path, $expansion );
+      if ( -e $expansion ) {
+        return $fix_path->($expansion);
+      }
+    }
   }
 
-  if ( -e $real_path . '/' . $file_name ) {
-    return $real_path . '/' . $file_name;
+  if ( -e $file_name ) {
+    return $fix_path->($file_name);
+  }
+
+  my $cat_file_name = File::Spec->catfile( $real_path, $file_name );
+  if ( -e $cat_file_name ) {
+    return $fix_path->($cat_file_name);
   }
 
   # walk down the wire to find the file...
@@ -72,17 +122,17 @@ sub get_file_path {
     }
 
     my $module_path = Rex::get_module_path($caller_package);
-    if ( -e "$module_path/$file_name" ) {
-      $file_name = "$module_path/$file_name";
-      return $file_name;
+    $cat_file_name = File::Spec->catfile( $module_path, $file_name );
+    if ( -e $cat_file_name ) {
+      return $fix_path->($cat_file_name);
     }
 
     $i++;
   }
 
-  $file_name = dirname($old_caller_file) . "/" . $file_name;
+  $file_name = File::Spec->catfile( dirname($old_caller_file), $file_name );
 
-  return $file_name;
+  return $fix_path->($file_name);
 }
 
 sub get_tmp_file {
@@ -137,6 +187,28 @@ sub resolv_path {
       $home_path = $remote_home;
       $path =~ s/^~/$home_path/;
     }
+  }
+
+  return $path;
+}
+
+sub parse_path {
+  my ($path) = @_;
+  my %hw;
+
+  require Rex::Commands::Gather;
+
+  $hw{server}      = Rex::Commands::connection()->server;
+  $hw{environment} = Rex::Commands::environment();
+
+  $path =~ s/\{(server|environment)\}/$hw{$1}/gms;
+
+  if ( $path =~ m/\{([^\}]+)\}/ ) {
+
+    # if there are still some variables to replace, we need some information of
+    # the system.
+    %hw = Rex::Commands::Gather::get_system_information();
+    $path =~ s/\{([^\}]+)\}/$hw{$1}/gms;
   }
 
   return $path;

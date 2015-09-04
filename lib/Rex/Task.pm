@@ -34,6 +34,8 @@ use warnings;
 use Data::Dumper;
 use Time::HiRes qw(time);
 
+# VERSION
+
 use Rex::Logger;
 use Rex::TaskList;
 use Rex::Interface::Connection;
@@ -44,7 +46,9 @@ use Rex::Hardware;
 use Rex::Interface::Cache;
 use Rex::Report;
 use Rex::Helper::Run;
+use Rex::Helper::Path;
 use Rex::Notify;
+use Carp;
 
 require Rex::Commands;
 
@@ -69,6 +73,8 @@ This is the constructor.
     before => [sub {}, sub {}, ...],
     after  => [sub {}, sub {}, ...],
     around => [sub {}, sub {}, ...],
+    before_task_start => [sub {}, sub {}, ...],
+    after_task_finished => [sub {}, sub {}, ...],
     name => $task_name,
     executor => Rex::Interface::Executor->create,
   );
@@ -473,19 +479,19 @@ This method is used internally to execute the specified hooks.
 =cut
 
 sub run_hook {
-  my ( $self, $server, $hook ) = @_;
+  my ( $self, $server, $hook, @more_args ) = @_;
 
   for my $code ( @{ $self->{$hook} } ) {
-    if ( $hook eq "after" ) {    # special case for after hooks
+    if ( $hook eq "after" ) { # special case for after hooks
       &$code(
         $$server,
         ( $self->{"__was_authenticated"} ? undef : 1 ),
-        { Rex::Args->get }
+        { Rex::Args->get }, @more_args
       );
     }
     else {
       my $old_server = $$server if $server;
-      &$code( $$server, $server, { Rex::Args->get } );
+      &$code( $$server, $server, { Rex::Args->get }, @more_args );
       if ( $old_server && $old_server ne $$server ) {
         $self->{current_server} = $$server;
       }
@@ -569,24 +575,31 @@ Initiate the connection to $server.
 =cut
 
 sub connect {
-  my ( $self, $server ) = @_;
+  my ( $self, $server, %override ) = @_;
 
   if ( ref($server) ne "Rex::Group::Entry::Server" ) {
     $server = Rex::Group::Entry::Server->new( name => $server );
   }
   $self->{current_server} = $server;
 
-  my $user        = $self->user;
-  my $password    = $self->password;
-  my $public_key  = "";
-  my $private_key = "";
+  my $user = $self->user;
 
   #print Dumper($self);
   my $auth = $self->merge_auth($server);
 
+  if ( exists $override{auth} ) {
+    $auth = $override{auth};
+    $user = $auth->{user};
+  }
+
   my $rex_int_conf = Rex::Commands::get("rex_internals");
   Rex::Logger::debug( Dumper($rex_int_conf) );
   Rex::Logger::debug( Dumper($auth) );
+
+  $auth->{public_key} = resolv_path( $auth->{public_key}, 1 )
+    if ( $auth->{public_key} );
+  $auth->{private_key} = resolv_path( $auth->{private_key}, 1 )
+    if ( $auth->{private_key} );
 
   my $profiler = Rex::Profiler->new;
 
@@ -609,16 +622,39 @@ sub connect {
   );
 
   $profiler->start("connect");
-  $self->connection->connect(%connect_hash);
+  eval {
+    $self->connection->connect(%connect_hash);
+    1;
+  } or do {
+    if ( !defined Rex::Config->get_fallback_auth ) {
+      croak $@;
+    }
+  };
   $profiler->end("connect");
 
   if ( !$self->connection->is_connected ) {
     Rex::pop_connection();
-    die("Couldn't connect to $server.");
+    croak("Couldn't connect to $server.");
   }
   elsif ( !$self->connection->is_authenticated ) {
     Rex::pop_connection();
-    die("Wrong username/password or wrong key on $server.");
+    my $message = "Wrong username/password or wrong key on $server.";
+    $message .= " Or root is not permitted to login over SSH."
+      if ( $connect_hash{user} eq 'root' );
+
+    if ( !exists $override{auth} ) {
+      my $fallback_auth = Rex::Config->get_fallback_auth;
+      if ( ref $fallback_auth eq "ARRAY" ) {
+        my $ret_eval;
+        for my $fallback_a ( @{$fallback_auth} ) {
+          $ret_eval = eval { $self->connect( $server, auth => $fallback_a ); };
+        }
+
+        return $ret_eval if $ret_eval;
+      }
+    }
+
+    croak($message);
   }
   else {
     Rex::Logger::info("Successfully authenticated on $server.")
@@ -628,6 +664,7 @@ sub connect {
 
   $self->run_hook( \$server, "around" );
 
+  return 1;
 }
 
 =item disconnect
@@ -639,7 +676,7 @@ Disconnect from the current connection.
 sub disconnect {
   my ( $self, $server ) = @_;
 
-  $self->run_hook( \$server, "around" );
+  $self->run_hook( \$server, "around", 1 );
   $self->connection->disconnect;
 
   my %args = Rex::Args->getopts;
@@ -723,7 +760,7 @@ sub run {
 
     if ( !$server->test_perl ) {
       Rex::Logger::info(
-"There is no perl interpreter found on this system. Some commands may not work. Sudo won't work.",
+        "There is no perl interpreter found on this system. Some commands may not work. Sudo won't work.",
         "warn"
       );
       sleep 3;

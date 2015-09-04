@@ -2,40 +2,47 @@ use strict;
 use warnings;
 
 use Test::More tests => 9;
+use File::Spec;
 use File::Basename;
 use Cwd 'getcwd';
 
 use_ok 'Rex::Helper::Path';
 
-$::rexfile = "Rexfile";
-$::rexfile = "Rexfile";
+my $rexfile  = "Rexfile";
+my $file     = File::Spec->join( "files", "foo.txt" );
+my $path     = Rex::Helper::Path::get_file_path( $file, "main", $rexfile );
+my $expected = $file;
 
-my $path =
-  Rex::Helper::Path::get_file_path( "files/foo.txt", "main", "Rexfile" );
-ok( $path eq "./files/foo.txt", "got file path if called from Rexfile" );
+is( $path, $expected, "got file path if called from Rexfile" );
 
 my $cwd = getcwd;
-$path =
-  Rex::Helper::Path::get_file_path( "$cwd/Makefile.PL", "main", "Rexfile" );
-ok( $path eq "$cwd/Makefile.PL",
-  "got file path if called from Rexfile - absolute path" );
+$file = File::Spec->join( $cwd, "ChangeLog" );
+$path = Rex::Helper::Path::get_file_path( $file, "main", $rexfile );
+$expected = $file;
 
-$path = Rex::Helper::Path::get_file_path( "files/foo.txt", "main",
-  "this/is/Rexfile" );
-ok( $path eq "this/is/files/foo.txt",
-  "got file path if called Rexfile from other directory" );
+is( $path, $file, "got file path if called from Rexfile - absolute path" );
 
-$path = Rex::Helper::Path::get_file_path( "files/foo.txt", "main",
-  "/this/is/Rexfile" );
-ok( $path eq "/this/is/files/foo.txt",
+$rexfile = File::Spec->join( "this", "is", "Rexfile" );
+$file = File::Spec->join( "files", "foo.txt" );
+$path = Rex::Helper::Path::get_file_path( $file, "main", $rexfile );
+$expected = File::Spec->join( "this", "is", "files", "foo.txt" );
+
+is( $path, $expected, "got file path if called Rexfile from other directory" );
+
+$rexfile = File::Spec->join( File::Spec->rootdir(), "this", "is", "Rexfile" );
+$file = File::Spec->join( "files", "foo.txt" );
+$path = Rex::Helper::Path::get_file_path( $file, "main", $rexfile );
+$expected =
+  File::Spec->join( File::Spec->rootdir(), "this", "is", "files", "foo.txt" );
+
+is( $path, $expected,
   "got file path if called Rexfile from other directory (absolute)" );
 
-$path = Rex::Helper::Path::get_file_path( "files/foo.txt", "File::Foo",
-  "lib/File/Foo/__module__.pm" );
-ok(
-  $path eq "lib/File/Foo/files/foo.txt",
-  "got file path for File::Foo module"
-);
+my $module_path = File::Spec->join( "lib", "File", "Foo", "__module__.pm" );
+$path = Rex::Helper::Path::get_file_path( $file, "File::Foo", $module_path );
+$expected = File::Spec->join( "lib", "File", "Foo", "files", "foo.txt" );
+
+is( $path, $expected, "got file path for File::Foo module" );
 
 $path = Rex::Helper::Path::get_tmp_file();
 my ( $filename, $directory, $suffix ) = fileparse( $path, '.tmp' );
