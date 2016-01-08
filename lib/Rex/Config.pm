@@ -16,8 +16,6 @@ With this module you can specify own configuration parameters for your modules.
 
 =head1 EXPORTED METHODS
 
-=over 4
-
 =cut
 
 package Rex::Config;
@@ -27,7 +25,7 @@ use warnings;
 
 # VERSION
 
-use File::Spec;
+use Rex::Helper::File::Spec;
 use Rex::Logger;
 use YAML;
 use Data::Dumper;
@@ -62,7 +60,7 @@ our (
   $register_cmdb_template,   $check_service_exists,
   $set_no_append,            $use_net_openssh_if_present,
   $use_template_ng,          $use_rex_kvm_agent,
-  $autodie,
+  $autodie,                  $task_chaining_cmdline_args,
 
 );
 
@@ -162,6 +160,15 @@ sub set_disable_taskname_warning {
 
 sub get_disable_taskname_warning {
   return $disable_taskname_warning;
+}
+
+sub set_task_chaining_cmdline_args {
+  my $class = shift;
+  $task_chaining_cmdline_args = shift;
+}
+
+sub get_task_chaining_cmdline_args {
+  return $task_chaining_cmdline_args;
 }
 
 sub set_verbose_run {
@@ -356,8 +363,8 @@ sub get_tmp_dir {
       return "/tmp";
     }
     else {
-      $cache->set( "tmpdir", File::Spec->tmpdir );
-      return File::Spec->tmpdir;
+      $cache->set( "tmpdir", Rex::Helper::File::Spec->tmpdir );
+      return Rex::Helper::File::Spec->tmpdir;
     }
   }
   return $tmp_dir;
@@ -443,7 +450,12 @@ sub get_user {
     return $user;
   }
 
-  return getlogin || getpwuid($<) || "Kilroy";
+  if ( $^O =~ m/^MSWin/ ) {
+    return getlogin;
+  }
+  else {
+    return getpwuid($<);
+  }
 }
 
 sub get_password {
@@ -725,6 +737,21 @@ sub get_connection_type {
       Rex::Logger::debug(
         "Found Net::OpenSSH and Net::SFTP::Foreign - using it as default");
       $connection_type = "OpenSSH";
+      return "OpenSSH";
+    }
+  }
+
+  if ( !$connection_type ) {
+    my $has_net_ssh2 = 0;
+    eval {
+      Net::SSH2->require;
+      $has_net_ssh2 = 1;
+      1;
+    };
+
+    if ($has_net_ssh2) {
+      $connection_type = "SSH";
+      return "SSH";
     }
   }
 
@@ -763,7 +790,20 @@ sub set_template_function {
 
 sub get_template_function {
   if ( ref($template_function) eq "CODE" ) {
-    return $template_function;
+    return sub {
+      my ( $content, $template_vars ) = @_;
+      $template_vars = {
+        Rex::Commands::task()->get_opts,
+        (
+          Rex::Resource->is_inside_resource
+          ? %{ Rex::Resource->get_current_resource()->get_all_parameters }
+          : ()
+        ),
+        %{ $template_vars || {} }
+        }
+        if ( Rex::Commands::task() );
+      return $template_function->( $content, $template_vars );
+    };
   }
 
   if ( Rex::Template::NG->is_loadable && get_use_template_ng() ) {
@@ -771,6 +811,16 @@ sub get_template_function {
     # new template engine
     return sub {
       my ( $content, $template_vars ) = @_;
+      $template_vars = {
+        Rex::Commands::task()->get_opts,
+        (
+          Rex::Resource->is_inside_resource
+          ? %{ Rex::Resource->get_current_resource()->get_all_parameters }
+          : ()
+        ),
+        %{ $template_vars || {} }
+        }
+        if ( Rex::Commands::task() );
       Rex::Template::NG->require;
       my $t = Rex::Template::NG->new;
       return $t->parse( $content, %{$template_vars} );
@@ -779,6 +829,16 @@ sub get_template_function {
 
   return sub {
     my ( $content, $template_vars ) = @_;
+    $template_vars = {
+      Rex::Commands::task()->get_opts,
+      (
+        Rex::Resource->is_inside_resource
+        ? %{ Rex::Resource->get_current_resource()->get_all_parameters }
+        : ()
+      ),
+      %{ $template_vars || {} }
+      }
+      if ( Rex::Commands::task() );
     use Rex::Template;
     my $template = Rex::Template->new;
     return $template->parse( $content, $template_vars );
@@ -794,7 +854,7 @@ sub get_no_tty {
   return $no_tty;
 }
 
-=item register_set_handler($handler_name, $code)
+=head2 register_set_handler($handler_name, $code)
 
 Register a handler that gets called by I<set>.
 
@@ -852,6 +912,7 @@ sub unset {
 
 sub get {
   my ( $class, $var ) = @_;
+  $var or return;
   if ( exists $set_param->{$var} ) {
     return $set_param->{$var};
   }
@@ -862,7 +923,7 @@ sub get_all {
   return $set_param;
 }
 
-=item register_config_handler($topic, $code)
+=head2 register_config_handler($topic, $code)
 
 With this function it is possible to register own sections in the users config file ($HOME/.rex/config.yml).
 
@@ -1069,9 +1130,5 @@ sub _home_dir {
 
   return $ENV{'HOME'} || "";
 }
-
-=back
-
-=cut
 
 1;

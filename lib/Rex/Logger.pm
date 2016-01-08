@@ -41,9 +41,9 @@ our $no_color = 0;
 eval "use Term::ANSIColor";
 if ($@) { $no_color = 1; }
 
-# no colors under windows
 if ( $^O =~ m/MSWin/ ) {
-  $no_color = 1;
+  eval "use Win32::Console::ANSI";
+  if ($@) { $no_color = 1; }
 }
 
 my $has_syslog = 0;
@@ -262,6 +262,19 @@ sub format_string {
   $line =~ s/\%p/$pid/gms;
 
   return $line;
+}
+
+sub masq {
+  my ( $format, @params ) = @_;
+
+  return $format if scalar @params == 0;
+  return $format if scalar( grep { defined } @params ) == 0;
+
+  if ( exists $ENV{REX_DEBUG_INSECURE} && $ENV{REX_DEBUG_INSECURE} eq "1" ) {
+    return sprintf( $format, @params );
+  }
+
+  return sprintf( $format, ("**********") x @params );
 }
 
 =back

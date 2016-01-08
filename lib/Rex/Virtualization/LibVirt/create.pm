@@ -119,10 +119,10 @@ sub execute {
   file "$file_name", content => $parsed_template;
 
   i_run "virsh -c $uri define $file_name";
-  unlink($file_name);
   if ( $? != 0 ) {
     die("Error defining vm $opts->{name}");
   }
+  unlink($file_name);
 
   return;
 }
@@ -152,11 +152,11 @@ sub _set_defaults {
 
   }
 
-  if ( !exists $opts->{"memory"} ) {
+  if ( !$opts->{"memory"} ) {
     $opts->{"memory"} = 512 * 1024;
   }
 
-  if ( !exists $opts->{"cpus"} ) {
+  if ( !$opts->{"cpus"} ) {
     $opts->{"cpus"} = 1;
   }
 

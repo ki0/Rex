@@ -61,7 +61,7 @@ sub exec {
   }
 
   if ( exists $option->{format_cmd} ) {
-    $option->{format_cmd} =~ s/{{CMD}}/$cmd/;
+    $option->{format_cmd} =~ s/\{\{CMD\}\}/$cmd/;
     $cmd = $option->{format_cmd};
   }
 
@@ -109,7 +109,7 @@ sub exec {
     waitpid( $pid, 0 ) or die($!);
   }
   else {
-    $pid = open( my $fh, "$cmd 2>&1 |" ) or die($!);
+    $pid = open( my $fh, "-|", "$cmd 2>&1" ) or die($!);
     while (<$fh>) {
       $out .= $_;
       $self->execute_line_based_operation( $_, $option )
@@ -118,8 +118,6 @@ sub exec {
     waitpid( $pid, 0 ) or die($!);
 
   }
-
-  $? >>= 8;
 
   Rex::Logger::debug($out) if ($out);
   if ($err) {
@@ -133,6 +131,14 @@ sub exec {
   if (wantarray) { return ( $out, $err ); }
 
   return $out;
+}
+
+sub can_run {
+  my ( $self, $commands_to_check, $check_with_command ) = @_;
+
+  $check_with_command ||= $^O =~ /^MSWin/i ? 'where' : 'which';
+
+  return $self->SUPER::can_run( $commands_to_check, $check_with_command );
 }
 
 1;

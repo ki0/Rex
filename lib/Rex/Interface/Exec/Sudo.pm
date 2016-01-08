@@ -21,6 +21,8 @@ use Rex::Interface::File::SSH;
 use Rex::Commands;
 use Rex::Helper::Path;
 
+use base 'Rex::Interface::Exec::Base';
+
 sub new {
   my $that  = shift;
   my $proto = ref($that) || $that;
@@ -137,7 +139,7 @@ EOF
 
     # $option->{format_cmd} =
     #   "perl $random_file '$enc_pw' | sudo $sudo_options_str -p '' -S {{CMD}}";
-      $sudo_command = "perl $random_file '$enc_pw' | $sudo_command";
+      $sudo_command = "perl $random_file '$enc_pw' 2>/dev/null | $sudo_command";
     }
 
     # else {
@@ -179,7 +181,7 @@ EOF
 # $option->{_force_sh} = 1;
 
     if ($enc_pw) {
-      $sudo_command = "perl $random_file '$enc_pw' | $sudo_command";
+      $sudo_command = "perl $random_file '$enc_pw' 2>/dev/null | $sudo_command";
 
 # $option->{format_cmd} =
 #   "perl $random_file '$enc_pw' | sudo $sudo_options_str -p '' -S sh -c \"{{CMD}}\"";

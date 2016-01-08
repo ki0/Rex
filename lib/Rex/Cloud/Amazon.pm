@@ -17,6 +17,8 @@ use warnings;
 
 use Rex::Logger;
 use Rex::Cloud::Base;
+use Rex::Cloud::Amazon::Sign;
+use HTTP::Request::Common;
 
 use base qw(Rex::Cloud::Base);
 
@@ -48,6 +50,14 @@ sub new {
   Rex::Logger::debug( "Using API Version: " . $self->{"__version"} );
 
   return $self;
+}
+
+sub signer {
+  my ($self) = @_;
+  return Rex::Cloud::Amazon::Sign->new(
+    -access_key => $self->{__access_key},
+    -secret_key => $self->{__secret_access_key}
+  );
 }
 
 sub set_auth {
@@ -419,7 +429,11 @@ sub _request {
   Rex::Logger::debug( "Sending request to: https://" . $self->{'__endpoint'} );
   Rex::Logger::debug( "  $_ -> " . $param{$_} ) for keys %param;
 
-  my $res = $ua->post( "https://" . $self->{'__endpoint'}, \%param );
+  my $req = POST( "https://" . $self->{__endpoint}, [%param] );
+  $self->signer->sign($req);
+
+  #my $res = $ua->post( "https://" . $self->{'__endpoint'}, \%param );
+  my $res = $ua->request($req);
 
   if ( $res->code >= 500 ) {
     Rex::Logger::info( "Error on request", "warn" );
@@ -450,6 +464,11 @@ sub _sign {
 
     $args{$key} = $o_args{$key};
   }
+
+  $args{Action}  = $action;
+  $args{Version} = $self->{__version};
+
+  return %args;
 
   my %sign_hash = (
     AWSAccessKeyId   => $self->{"__access_key"},

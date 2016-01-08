@@ -54,8 +54,6 @@ With this module you can manipulate files.
 
 =head1 EXPORTED FUNCTIONS
 
-=over 4
-
 =cut
 
 package Rex::Commands::File;
@@ -98,7 +96,7 @@ use base qw(Rex::Exporter);
 
 use vars qw(%file_handles);
 
-=item template($file, @params)
+=head2 template($file, @params)
 
 Parse a template and return the content.
 
@@ -256,7 +254,7 @@ sub _get_std_template_vars {
   return %template_vars;
 }
 
-=item file($file_name, %options)
+=head2 file($file_name, %options)
 
 This function is the successor of I<install file>. Please use this function to upload files to your server.
 
@@ -291,6 +289,19 @@ This function is the successor of I<install file>. Please use this function to u
      ensure => "absent";   # this will remove the file or directory
  
  };
+
+The first parameter is either a string or an array reference. In the latter case the
+function is called for all strings in the array. Therefore, the following constructs 
+are equivalent:
+
+  file '/tmp/test1', ensure => 'directory';
+  file '/tmp/test2', ensure => 'directory';
+
+  file [ qw( /tmp/test1 /tmp/test2 ) ], ensure => 'directory'; # use array ref
+
+  file [ glob('/tmp/test{1,2}') ], ensure => 'directory'; # explicit glob call for array contents
+
+Use the glob carefully as B<it can leak local filesystem information> (e.g. when using wildcards).
 
 The I<source> is subject to a path resolution algorithm. This algorithm
 can be configured using the I<set> function to set the value of the
@@ -696,7 +707,7 @@ sub file {
   return $__ret->{changed};
 }
 
-=item file_write($file_name)
+=head2 file_write($file_name)
 
 This function opens a file for writing (it will truncate the file if it already exists). It returns a Rex::FS::File object on success.
 
@@ -733,7 +744,7 @@ sub file_write {
   return Rex::FS::File->new( fh => $fh );
 }
 
-=item file_append($file_name)
+=head2 file_append($file_name)
 
 =cut
 
@@ -753,7 +764,7 @@ sub file_append {
   return Rex::FS::File->new( fh => $fh );
 }
 
-=item file_read($file_name)
+=head2 file_read($file_name)
 
 This function opens a file for reading. It returns a Rex::FS::File object on success.
 
@@ -791,7 +802,7 @@ sub file_read {
   return Rex::FS::File->new( fh => $fh );
 }
 
-=item cat($file_name)
+=head2 cat($file_name)
 
 This function returns the complete content of $file_name as a string.
 
@@ -813,7 +824,7 @@ sub cat {
   return $content;
 }
 
-=item delete_lines_matching($file, $regexp)
+=head2 delete_lines_matching($file, $regexp)
 
 Delete lines that match $regexp in $file.
 
@@ -889,7 +900,7 @@ OUT:
     ->report_resource_end( type => "delete_lines_matching", name => $file );
 }
 
-=item delete_lines_according_to($search, $file, @options)
+=head2 delete_lines_according_to($search, $file, @options)
 
 This is the successor of the delete_lines_matching() function. This function also allows the usage of an on_change hook.
 
@@ -929,7 +940,7 @@ sub delete_lines_according_to {
 
 }
 
-=item append_if_no_such_line($file, $new_line, @regexp)
+=head2 append_if_no_such_line($file, $new_line, @regexp)
 
 Append $new_line to $file if none in @regexp is found. If no regexp is
 supplied, the line is appended unless there is already an identical line
@@ -960,7 +971,7 @@ sub append_if_no_such_line {
   _append_or_update( 'append_if_no_such_line', @_ );
 }
 
-=item append_or_amend_line($file, $line, @regexp)
+=head2 append_or_amend_line($file, $line, @regexp)
 
 Similar to L<append_if_no_such_line>, but if the line in the regexp is
 found, it will be updated. Otherwise, it will be appended.
@@ -1110,9 +1121,11 @@ sub _append_or_update {
     ->report_resource_end( type => $action, name => $file );
 }
 
-=item extract($file [, %options])
+=head2 extract($file [, %options])
 
-This function extracts a file. Supported formats are .box, .tar, .tar.gz, .tgz, .tar.Z, .tar.bz2, .tbz2, .zip, .gz, .bz2, .war, .jar.
+This function extracts a file. The target directory optionally specified with the `to` option will be created automatically.
+
+Supported formats are .box, .tar, .tar.gz, .tgz, .tar.Z, .tar.bz2, .tbz2, .zip, .gz, .bz2, .war, .jar.
 
  task prepare => sub {
    extract "/tmp/myfile.tar.gz",
@@ -1150,6 +1163,7 @@ sub extract {
     $type = $option{type};
   }
 
+  Rex::Commands::Fs::mkdir($to);
   $pre_cmd = "cd $to; ";
 
   my $exec = Rex::Interface::Exec->create;
@@ -1199,7 +1213,7 @@ sub extract {
 
 }
 
-=item sed($search, $replace, $file)
+=head2 sed($search, $replace, $file)
 
 Search some string in a file and replace it.
 
@@ -1261,9 +1275,5 @@ sub sed {
 
   return $ret;
 }
-
-=back
-
-=cut
 
 1;

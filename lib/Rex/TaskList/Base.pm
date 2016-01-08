@@ -11,6 +11,11 @@ use warnings;
 
 # VERSION
 
+BEGIN {
+  use Rex::Shared::Var;
+  share qw(@SUMMARY);
+}
+
 use Data::Dumper;
 use Rex::Logger;
 use Rex::Task;
@@ -20,6 +25,7 @@ use Rex::Fork::Manager;
 use Rex::Report;
 use Rex::Group;
 use Time::HiRes qw(time);
+use POSIX qw(floor);
 
 sub new {
   my $that  = shift;
@@ -55,6 +61,27 @@ sub create_task {
   }
   else {
     $func = pop;
+  }
+
+# matching against a task count of 2 because of the two internal tasks (filtered below)
+  if ( ( scalar( keys %{ $self->{tasks} } ) ) == 2 ) {
+    my $requested_env = Rex::Config->get_environment;
+    my @environments  = Rex::Commands->get_environments;
+
+    if ( $task_name ne 'Commands:Box:get_sys_info'
+      && $task_name ne 'Test:run'
+      && $requested_env ne ''
+      && !grep { $_ eq $requested_env } @environments )
+    {
+      Rex::Logger::info(
+        "Environment '$requested_env' has been requested, but it could not be found in the Rexfile. This is most likely only by mistake.",
+        'warn'
+      );
+      Rex::Logger::info(
+        "If it is intentional, you can suppress this warning by specifying an empty environment: environment '$requested_env' => sub {};",
+        'warn'
+      );
+    }
   }
 
   my @server = ();
@@ -140,7 +167,12 @@ sub create_task {
               }
 
               return map {
-                Rex::Group::Entry::Server->new( name => $_ )->get_servers
+                if ( ref $_ && $_->isa("Rex::Group::Entry::Server") ) {
+                  $_->get_servers;
+                }
+                else {
+                  Rex::Group::Entry::Server->new( name => $_ )->get_servers;
+                }
               } Rex::Group->get_group($group);
             };
 
@@ -152,7 +184,7 @@ sub create_task {
           push(
             @server,
             (
-              ref($entry) eq "Rex::Group::Entry"
+              ref $entry && $entry->isa("Rex::Group::Entry::Server")
               ? $entry
               : Rex::Group::Entry::Server->new( name => $entry )
             )
@@ -186,16 +218,21 @@ sub create_task {
 
   if ( $self->{DEFAULT_AUTH} ) {
     $task_hash{auth} = {
-      user          => Rex::Config->get_user,
-      password      => Rex::Config->get_password,
-      private_key   => Rex::Config->get_private_key,
-      public_key    => Rex::Config->get_public_key,
-      sudo_password => Rex::Config->get_sudo_password,
+      user          => Rex::Config->get_user          || undef,
+      password      => Rex::Config->get_password      || undef,
+      private_key   => Rex::Config->get_private_key   || undef,
+      public_key    => Rex::Config->get_public_key    || undef,
+      sudo_password => Rex::Config->get_sudo_password || undef,
     };
+  }
+
+  if ( exists $Rex::Commands::auth_late{$task_name} ) {
+    $task_hash{auth} = $Rex::Commands::auth_late{$task_name};
   }
 
   $self->{tasks}->{$task_name} = Rex::Task->new(%task_hash);
 
+  return $self->{tasks}->{$task_name};
 }
 
 sub get_tasks {
@@ -255,59 +292,69 @@ sub is_task {
 }
 
 sub run {
-  my ( $self, $task_name, %option ) = @_;
-  my $task = $self->get_task($task_name);
+  my ( $self, $task, %options ) = @_;
 
-  $option{params} ||= { Rex::Args->get };
+  my $fm = Rex::Fork::Manager->new( max => $self->get_thread_count($task) );
+  my $all_servers = $task->server;
 
-  my @all_server = @{ $task->server };
+  for my $server (@$all_servers) {
+    my $child_coderef = $self->build_child_coderef($task, $server, %options);
 
-  my $fm = Rex::Fork::Manager->new( max => $task->parallelism
-      || Rex::Config->get_parallelism );
+    if ( $self->{IN_TRANSACTION} ) {
 
-  for my $server (@all_server) {
-
-    my $forked_sub = sub {
-
-      Rex::Logger::init();
-
-      # create a single task object for the run on $server
-
-      Rex::Logger::info("Running task $task_name on $server");
-      my $run_task = Rex::Task->new( %{ $task->get_data } );
-
-      $run_task->run(
-        $server,
-        in_transaction => $self->{IN_TRANSACTION},
-        params         => $option{params}
-      );
-
-      # destroy cached os info
-      Rex::Logger::debug("Destroying all cached os information");
-
-      Rex::Logger::shutdown();
-
-    };
-
-    # add the worker (forked_sub) to the fork queue
-    unless ( $self->{IN_TRANSACTION} ) {
-
-      # not inside a transaction, so lets fork happyly...
-      $fm->add( $forked_sub, 1 );
+      # Inside a transaction -- no forking and no chance to get zombies.
+      # This only happens if someone calls do_task() from inside a transaction.
+      $child_coderef->();
     }
     else {
-# inside a transaction, no little small funny kids, ... and no chance to get zombies :(
-      &$forked_sub();
+      # Not inside a transaction, so lets fork
+      # Add $forked_sub to the fork queue
+      $fm->add($child_coderef);
     }
-
   }
 
   Rex::Logger::debug("Waiting for children to finish");
   my $ret = $fm->wait_for_all;
-
   Rex::reconnect_lost_connections();
 
   return $ret;
+}
+
+sub build_child_coderef {
+  my ($self, $task, $server, %options) = @_;
+
+  return sub {
+    Rex::Logger::init();
+    Rex::Logger::info("Running task " . $task->name . " on $server");
+
+    my $return_value = eval {
+        $task->clone->run(
+          $server,
+          in_transaction => $self->{IN_TRANSACTION},
+          params         => $options{params},
+          args           => $options{args},
+      );
+    };
+
+    if ($self->{IN_TRANSACTION}) {
+      die $@ if $@;
+    }
+    else {
+      my $exit_code = $@ ? ( ( $? >> 8 ) || 1 ) : 0;
+
+      push @SUMMARY, {
+        task      => $task->name,
+        server    => $server->to_s,
+        exit_code => $exit_code,
+      };
+    }
+
+    Rex::Logger::debug("Destroying all cached os information");
+    Rex::Logger::shutdown();
+
+
+    return $return_value;
+  };
 }
 
 sub modify {
@@ -364,7 +411,26 @@ sub is_transaction {
 
 sub get_exit_codes {
   my ($self) = @_;
-  return @Rex::Fork::Task::PROCESS_LIST;
+  return map { $_->{exit_code} } @SUMMARY;
 }
+
+sub get_thread_count {
+  my ( $self, $task ) = @_;
+  my $threads = $task->parallelism || Rex::Config->get_parallelism;
+  my $server_count = scalar @{ $task->server };
+
+  return $1                                if $threads =~ /^(\d+)$/;
+  return floor( $server_count / $1 )       if $threads =~ /^max\s?\/(\d+)$/;
+  return floor( $server_count * $1 / 100 ) if $threads =~ /^max (\d+)%$/;
+  return $server_count                     if $threads eq 'max';
+
+  Rex::Logger::info(
+    "Unrecognized thread count requested: '$threads'. Falling back to a single thread.",
+    'warn'
+  );
+  return 1;
+}
+
+sub get_summary { @SUMMARY }
 
 1;

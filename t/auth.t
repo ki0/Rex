@@ -2,21 +2,19 @@ use strict;
 use warnings;
 
 use Test::More tests => 48;
-use Data::Dumper;
 
-use_ok 'Rex';
-use_ok 'Rex::Config';
-use_ok 'Rex::Group';
-use_ok 'Rex::Task';
-use_ok 'Rex::TaskList';
-use_ok 'Rex::Commands';
-use_ok 'Rex::Commands::Run';
-use_ok 'Rex::Commands::Upload';
+use Rex::Commands;
+use Rex::Group;
 
-Rex::Commands->import();
+{
+  no warnings 'once';
+  $::QUIET = 1;
+}
 
 group( "srvgr1", "srv1" );
 group( "srvgr2", "srv2", "srv3" );
+
+delete $ENV{REX_USER};
 
 user("root1");
 password("pass1");
@@ -136,4 +134,43 @@ for my $server ( @{$servers} ) {
   is( $auth->{private_key}, "priv.key2" );
   is( $auth->{public_key},  "pub.key2" );
 }
+
+auth(
+  for         => "testa4",
+  user        => "baruser",
+  password    => "barpass",
+  private_key => "testa4.priv",
+  public_key  => "testa4.pub"
+);
+
+task(
+  "testa4",
+  sub {
+  }
+);
+
+$auth = Rex::TaskList->create()->get_task("testa4")->{auth};
+is( $auth->{user},        "baruser" );
+is( $auth->{password},    "barpass" );
+is( $auth->{private_key}, "testa4.priv" );
+is( $auth->{public_key},  "testa4.pub" );
+
+$ENV{REX_USER} = "root5";
+
+user("toor5");
+password("pass5");
+private_key("testa5.priv");
+public_key("testa5.pub");
+
+task(
+  "testa5",
+  sub {
+  }
+);
+
+$auth = Rex::TaskList->create()->get_task("testa5")->{auth};
+is( $auth->{user},        "root5" );
+is( $auth->{password},    "pass5" );
+is( $auth->{private_key}, "testa5.priv" );
+is( $auth->{public_key},  "testa5.pub" );
 

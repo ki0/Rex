@@ -4,19 +4,12 @@ use warnings;
 use Cwd 'getcwd';
 my $cwd = getcwd;
 
-BEGIN {
-  use Test::More tests => 57;
-  use Data::Dumper;
+use Test::More tests => 55;
 
-  use_ok 'Rex';
-  use_ok 'Rex::Commands::File';
-  use_ok 'Rex::Commands::Fs';
-  use_ok 'Rex::Commands::Gather';
-  use_ok 'Rex::Config';
-  Rex::Commands::File->import;
-  Rex::Commands::Fs->import;
-  Rex::Commands::Gather->import;
-}
+use Rex::Commands::File;
+use Rex::Commands::Fs;
+use Rex::Commands::Gather;
+use Rex::Commands::Run;
 
 Rex::Config->set( foo => "bar" );
 
@@ -42,7 +35,7 @@ like( $c, qr/bar/,  "file with content (2)" );
 
 Rex::Commands::Fs::unlink($filename);
 
-ok( !is_file($filename), "file removed" );
+is( is_file($filename), undef, "file removed" );
 
 file(
   $filename,
@@ -50,11 +43,13 @@ file(
   mode    => 777
 );
 
-SKIP: {
-  skip "chmod not for windows", 1 unless ! is_windows();
-  my %stats = Rex::Commands::Fs::stat($filename);
-  is( $stats{mode}, "0777" || is_windows(), "fs chmod ok" );
-};
+my %stats = Rex::Commands::Fs::stat($filename);
+if ( is_windows() && $^O ne "cygwin" ) {
+  is( $stats{mode}, "0666", "windows without chmod" );
+}
+else {
+  is( $stats{mode}, "0777", "fs chmod ok" );
+}
 
 my $changed = 0;
 my $content = cat($filename);
@@ -227,17 +222,28 @@ unlike( $content, qr/^$/m, "no extra blank lines inserted" );
 
 file "file with space-$$.txt", content => "file with space\n";
 
-ok( is_file("file with space-$$.txt"), "file with space exists" );
+is( is_file("file with space-$$.txt"), 1, "file with space exists" );
 
 $c = "";
 $c = cat "file with space-$$.txt";
 like( $c, qr/file with space/m, "found content of file with space" );
 
-Rex::Commands::Fs::unlink($filename);
 Rex::Commands::Fs::unlink("file with space-$$.txt");
+is( is_file("file with space-$$.txt"), undef, "file with space removed" );
 
-ok( !is_file($filename),                "test.txt removed" );
-ok( !is_file("file with space-$$.txt"), "file with space removed" );
+file "file_with_\@-$$.txt", content => "file with at sign\n";
+
+is( is_file("file_with_\@-$$.txt"), 1, "file with at sign exists" );
+
+$c = "";
+$c = cat "file_with_\@-$$.txt";
+like( $c, qr/file with at sign/m, "found content of file with at sign" );
+
+Rex::Commands::Fs::unlink("file_with_\@-$$.txt");
+is( is_file("file_with_\@-$$.txt"), undef, "file with at sign removed" );
+
+Rex::Commands::Fs::unlink($filename);
+is( is_file($filename), undef, "test.txt removed" );
 
 $filename = "$tmp_dir/test-sed-$$.txt";
 

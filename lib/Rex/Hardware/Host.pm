@@ -41,15 +41,15 @@ sub get {
     if ( $os eq "Windows" ) {
       my @env = i_run("env");
       ($hostname) =
-        grep { $_ = $1 if /^COMPUTERNAME=(.*)$/ } split( /\r?\n/, @env );
+        map { /^COMPUTERNAME=(.*)$/ } split( /\r?\n/, @env );
       ($domain) =
-        grep { $_ = $1 if /^USERDOMAIN=(.*)$/ } split( /\r?\n/, @env );
+        map { /^USERDOMAIN=(.*)$/ } split( /\r?\n/, @env );
     }
     elsif ( $os eq "NetBSD" || $os eq "OpenBSD" || $os eq 'FreeBSD' ) {
       ( $hostname, $domain ) = split( /\./, i_run("hostname"), 2 );
     }
     elsif ( $os eq "SunOS" ) {
-      ($hostname) = grep { $_ = $1 if /^([^\.]+)$/ } i_run("hostname");
+      ($hostname) = map { /^([^\.]+)$/ } i_run("hostname");
       ($domain) = i_run("domainname");
     }
     elsif ( $os eq "OpenWrt" ) {
@@ -173,6 +173,10 @@ sub get_operating_system {
     return "OpenWrt";
   }
 
+  if ( is_file("/etc/arch-release") ) {
+    return "Arch";
+  }
+
   my $os_string = i_run("uname -s");
   return $os_string; # return the plain os
 
@@ -291,7 +295,7 @@ sub get_operating_system_version {
 
   }
   elsif ( $op =~ /BSD/ ) {
-    my ($version) = grep { $_ = $1 if /(\d+\.\d+)/ } i_run "uname -r";
+    my ($version) = map { /(\d+\.\d+)/ } i_run "uname -r";
     return $version;
   }
   elsif ( $op eq "OpenWrt" ) {
@@ -302,6 +306,15 @@ sub get_operating_system_version {
     chomp $content;
 
     return $content;
+  }
+  elsif ( $op eq "Arch" ) {
+    my $available_updates = i_run "checkupdates";
+    if ( $available_updates eq "" ) {
+      return "latest";
+    }
+    else {
+      return "outdated";
+    }
   }
 
   return [ i_run("uname -r") ]->[0];

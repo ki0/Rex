@@ -26,6 +26,9 @@ sub new {
   my $self  = {@_};
 
   bless( $self, $proto );
+  for my $srv ( @{ $self->{servers} } ) {
+    $srv->append_to_group( $self->{name} );
+  }
 
   return $self;
 }
@@ -70,7 +73,7 @@ sub create_group {
     next if ref $server[$i] eq 'HASH'; # already processed by previous loop
 
     # if argument is already a Rex::Group::Entry::Server
-    if ( ref( $server[$i] ) eq "Rex::Group::Entry::Server" ) {
+    if ( ref $server[$i] && $server[$i]->isa("Rex::Group::Entry::Server") ) {
       push @server_obj, $server[$i];
       next;
     }
@@ -81,11 +84,12 @@ sub create_group {
       ? %{ $server[ $i + 1 ] }
       : ();
 
-    push @server_obj,
-      Rex::Group::Entry::Server->new( name => $server[$i], %options );
+    my $obj = Rex::Group::Entry::Server->new( name => $server[$i], %options );
+    push @server_obj, $obj;
   }
 
-  $groups{$group_name} = Rex::Group->new( servers => \@server_obj );
+  $groups{$group_name} =
+    Rex::Group->new( servers => \@server_obj, name => $group_name );
 }
 
 # returns the servers in the group

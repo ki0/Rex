@@ -1,4 +1,4 @@
-#!perl -w
+#!perl
 
 #
 # (c) Jan Gehring <jan.gehring@gmail.com>
@@ -20,178 +20,136 @@ __END__
 
 =pod
 
-=head1 (R)?ex - (Remote)? Execution
+=head1 NAME
 
-Rex is a tool to ease the execution of commands on multiple remote servers. You can define small tasks, chain tasks to batches, link them with servers or server groups, and execute them easily in your terminal.
+(R)?ex - (Remote)? Execution
 
-=head2 Command line options
+=head1 DESCRIPTION
+
+Rex is a command line tool which executes commands on remote servers.  Define
+tasks in Perl and execute them on remote servers or groups of servers.
+
+Rex can be used to:
 
 =over 4
 
-=item -b              Run batch
+=item - Deploy web applications to servers sequentially or in parallel.
 
-=item -e              Run the give code fragment
+=item - Automate common tasks.
 
-=item -E              Execute task on the given environment
-
-=item -H              Execute task on these hosts
-
-=item -z              Execute task on hosts from this command's output
-
-=item -G|-g           Execute task on these group
-
-=item -u              Username for the ssh connection
-
-=item -p              Password for the ssh connection
-
-=item -P              Private Keyfile for the ssh connection
-
-=item -K              Public Keyfile for the ssh connection
-
-=item -T              List all known tasks.
-
-=item -Tm             List all known tasks in "machine readable" format
-
-=item -Ty             List all known tasks in YAML format
-
-=item -Tv             List all known tasks with all information
-
-=item -f              Use this file instead of Rexfile
-
-=item -h              Display this help
-
-=item -m              Monochrome output. No colors
-
-=item -M              Load Module instead of Rexfile
-
-=item -s              Use sudo for every command
-
-=item -S              Password for sudo
-
-=item -v              Display (R)?ex Version
-
-=item -F              Force. Don't regard lock file
-
-=item -d              Debug
-
-=item -dd             More Debug (includes Profiling Output)
-
-=item -o <module>     Create a compatible output for the given module
-
-=item -C              Turn cache OFF
-
-=item -c              Turn cache ON
-
-=item -q              Quiet mode. No Logging output
-
-=item -qw             Quiet mode. Only output warnings and errors
-
-=item -Q              Really quiet. Output nothing.
-
-=item -t              Number of threads to use ('parallelism' parameter)
+=item - Provision servers using Rex's builtin tools.
 
 =back
 
+=head1 SYNOPSIS
 
-=head2 Rexfile
+    bash# rex -h                      # Show usage
+    bash# rex -T                      # List tasks
+    bash# rex uname                   # Run the 'uname' task
+    bash# rex -H server[01..10] uname # Run the 'uname' task on all the specified hosts
+    bash# rex -G production uname     # Run 'uname' on hosts on the 'production' hostgroup
+    bash# rex deploy --gracefully     # Pass '--gracefully' to the 'deploy' task
 
-If you run I<rex> it will read the file I<Rexfile> in the current working directory. A Rexfile consists 3 major parts.
+=head1 USAGE
 
-=head3 Authentication and Configuration
+    rex [<options>] [-H <host>] [-G <group>] <task> [<task-options>]
+    rex -T[m|y|v] [<string>]
 
-In that part you define the user and password you want to use to log into your servers. You can even define timeouts or the paralellism of task exexecution.
+    -b     Run batch
+    -e     Run the given code fragment
+    -E     Execute a task on the given environment
+    -G|-g  Execute a task on the given server groups
+    -H     Execute a task on the given hosts (space delimited)
+    -z     Execute a task on hosts from this command's output
+  
+    -K     Public key file for the ssh connection
+    -P     Private key file for the ssh connection
+    -p     Password for the ssh connection
+    -u     Username for the ssh connection
+  
+    -d     Show debug output
+    -ddd   Show more debug output (includes profiling output)
+    -m     Monochrome output: no colors
+    -o     Output format
+    -q     Quiet mode: no log output
+    -qw    Quiet mode: only output warnings and errors
+    -Q     Really quiet: output nothing
+  
+    -T     List tasks
+    -Tm    List tasks in machine-readable format
+    -Tv    List tasks verbosely
+    -Ty    List tasks in YAML format
+  
+    -c     Turn cache ON
+    -C     Turn cache OFF
+    -f     Use this file instead of Rexfile
+    -F     Force: disregard lock file
+    -h     Display this help message
+    -M     Load this module instead of Rexfile
+    -O     Pass additional options, like CMDB path
+    -s     Use sudo for every command
+    -S     Password for sudo
+    -t     Number of threads to use (aka 'parallelism' param)
+    -v     Display (R)?ex version
 
-=head4 Simple Authentication
+=head1 Rexfile
 
-B<Define the user>
+When you run C<rex> it reads the file C<Rexfile> in the current working
+directory. A Rexfile consists of 2 major parts: Configuration and Task
+Definitions.
 
- user "<user>";
+=head2 Configuration
 
-B<Define the password>
+=head3 Simple Authentication
 
- password "<password>";
+    user "bruce";
+    password "batman";
+    pass_auth;
 
-B<Set password authentication>
+=head3 Key Authentication
 
- pass_auth;
+    private_key "/path/to/your/private/key.file";
+    public_key "/path/to/your/public/key.file";
 
+=head3 Define Logging
 
-=head4 Key Authentication
-
-B<Define Private Key>
-
- private_key "/path/to/your/private/key.file";
-
-B<Define Public Key>
-
- public_key "/path/to/your/public/key.file";
-
-=head4 Define Logging
-
-B<Log to a file>
-
- logging to_file => "rex.log";
-
-B<Log to syslog>
-
- logging to_syslog => "local0";
-
-=head4 Other Configuration parameters
-
-B<Define ssh timeout>
-
- timeout 10;
-
-B<Define parallelism>
-
- parallelism 2;
+    logging to_file => "rex.log";
+    logging to_syslog => "local0";
 
 =head3 Group your servers
 
-Rex gives you the possibility to B<group your servers>. One way is to do
-it in code within the Rexfile. Another is to use a I<server.ini> file
-in the same directory as the Rexfile.
+Rex gives you the ability to define groups of servers. Groups can be defined the Rexfile:
 
-=head4 Code in the Rexfile
+    group "frontends" => "frontend01", "frontend02", "frontend03", "frontend04", "frontend[05..09]";
 
-Rex gives you the possibility to B<group your servers>. So you don't need to type every servername multiple times.
+Groups can also be defined in a B<server.ini> file:
 
- group "frontends" => "frontend01", "frontend02", "frontend03", "frontend04";
+    [frontends]
+    frontend[01..04]
 
-You can even B<define ranges> in the servernames:
+=head2 Other Configuration
 
- group "frontends" => "frontend[01..04]";
+    timeout 10;    # ssh timeout
+    parallelism 2; # execute tasks in parallel
 
-=head4 Using server.ini
+=head2 Defining tasks
 
-The same group definition can be stored in a I<server.ini> file:
+A basic task looks like this:
 
- [frontends]
- frontend[01..04]
+    # task description
+    desc "This task tells you how long since the server was rebooted";
+   
+    # task definition
+    task "shortname", sub {
+        say run "uptime";
+    };
 
-=head3 Your tasks
+You can also set a default server group:
 
-B<Create a task description>
-
- desc "This is a long description of a task";
-
-B<Create the task>
-
- task "shortname", group => "frontends", sub {
-     run "uptime";
- };
-
-B<or, if you don't have groups>
-
- task "shortname", "frontend01", "frontend02", "frontend03", "frontend04", sub {
-     run "uptime";
- };
-
-B<and with serverranges>
-
- task "shortname", "frontend[01..04]", sub {
-     run "uptime";
- };
+    desc "This is a long description of a task";
+    task "shortname", group => "frontends", sub {
+        say run "uptime";
+    };
 
 =cut
 

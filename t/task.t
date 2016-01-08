@@ -20,12 +20,11 @@ unless ( $have_mods{'Net::SSH2'} or $have_mods{'Net::OpenSSH'} ) {
     'SSH module not found. You need Net::SSH2 or Net::OpenSSH to connect to servers via SSH.';
 }
 else {
-  plan tests => 33;
+  plan tests => 36;
 }
 
-use_ok 'Rex::Task';
-use_ok 'Rex::Commands';
-Rex::Commands->import;
+use Rex::Task;
+use Rex::Commands;
 
 {
   no warnings 'once';
@@ -48,14 +47,28 @@ is( $t1->is_local, 0, "is task not local" );
 $t1->set_desc("Description");
 is( $t1->desc, "Description", "get/set description" );
 
-is( $t1->get_connection_type, "SSH", "get connection type for ssh" );
-is( $t1->want_connect,        1,     "want a connection?" );
+is(
+  $t1->get_connection_type,
+  ( $have_mods{"Net::OpenSSH"} ? "OpenSSH" : "SSH" ),
+  "get connection type for ssh"
+);
+is( $t1->want_connect, 1, "want a connection?" );
 $t1->modify( "no_ssh", 1 );
 is( $t1->want_connect,        0,      "want no connection?" );
 is( $t1->get_connection_type, "Fake", "get connection type for fake" );
 $t1->modify( "no_ssh", 0 );
-is( $t1->want_connect,        1,     "want a connection?" );
+is( $t1->want_connect, 1, "want a connection?" );
+is(
+  $t1->get_connection_type,
+  ( $have_mods{"Net::OpenSSH"} ? "OpenSSH" : "SSH" ),
+  "get connection type for ssh"
+);
+
+Rex::Config->set( "connection" => "SSH" );
 is( $t1->get_connection_type, "SSH", "get connection type for ssh" );
+
+Rex::Config->set( "connection" => "OpenSSH" );
+is( $t1->get_connection_type, "OpenSSH", "get connection type for ssh" );
 
 $t1->set_user("root");
 is( $t1->user, "root", "get/set the user" );
@@ -76,6 +89,8 @@ $t1->set_code(
   }
 );
 
+Rex::Config->set(
+  "connection" => $have_mods{"Net::OpenSSH"} ? "OpenSSH" : "SSH" );
 ok( !$t1->connection->is_connected, "connection currently not established" );
 $t1->modify( "no_ssh", 1 );
 $t1->connect("localtest");
@@ -137,9 +152,43 @@ task(
   }
 );
 
+task(
+  "param_test1",
+  sub {
+    my $param = shift;
+    is_deeply(
+      $param,
+      { name => "foo" },
+      "First parameter to task is a hashRef"
+    );
+  }
+);
+
+task(
+  "param_test2",
+  sub {
+    is_deeply( \@_, [ "city", "bar" ], "Parameters are a list (length 2)." );
+  }
+);
+
+task(
+  "param_test3",
+  sub {
+    is_deeply(
+      \@_,
+      [ "blah", "blub", "bumm" ],
+      "Parameters are a list (length 3)."
+    );
+  }
+);
+
 my $s = ret_test1();
 is( $s, "string", "task successfully returned a string" );
 
 my @l = ret_test2();
 is_deeply( \@l, [ "e1", "e2" ], "task successfully returned a list" );
+
+param_test1( { name => "foo" } );
+param_test2( city => "bar" );
+param_test3( "blah", "blub", "bumm" );
 

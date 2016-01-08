@@ -11,7 +11,7 @@ use warnings;
 
 # VERSION
 
-use Fcntl qw(:DEFAULT :mode);
+use Rex::Helper::File::Stat;
 use Rex::Interface::Exec;
 use Rex::Interface::Fs::SSH;
 
@@ -70,7 +70,9 @@ sub is_dir {
 
   Rex::Commands::profiler()->end("is_dir: $path");
 
-  defined $attr ? return S_ISDIR( $attr->perm ) : return 0;
+  defined $attr
+    ? return Rex::Helper::File::Stat->S_ISDIR( $attr->perm )
+    : return undef;
 }
 
 sub is_file {
@@ -84,13 +86,13 @@ sub is_file {
   Rex::Commands::profiler()->end("is_file: $file");
 
   defined $attr
-    ? return ( S_ISREG( $attr->perm )
-      || S_ISLNK( $attr->perm )
-      || S_ISBLK( $attr->perm )
-      || S_ISCHR( $attr->perm )
-      || S_ISFIFO( $attr->perm )
-      || S_ISSOCK( $attr->perm ) )
-    : return 0;
+    ? return ( Rex::Helper::File::Stat->S_ISREG( $attr->perm )
+      || Rex::Helper::File::Stat->S_ISLNK( $attr->perm )
+      || Rex::Helper::File::Stat->S_ISBLK( $attr->perm )
+      || Rex::Helper::File::Stat->S_ISCHR( $attr->perm )
+      || Rex::Helper::File::Stat->S_ISFIFO( $attr->perm )
+      || Rex::Helper::File::Stat->S_ISSOCK( $attr->perm ) )
+    : return undef;
 }
 
 sub unlink {
@@ -117,7 +119,7 @@ sub stat {
   my $sftp = Rex::get_sftp();
   my $ret  = $sftp->stat($file);
 
-  if ( !$ret ) { return; }
+  if ( !$ret ) { return undef; }
 
   my %ret = (
     mode  => sprintf( "%04o", $ret->perm & 07777 ),

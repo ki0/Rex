@@ -48,12 +48,34 @@ Only I<open_port> and I<close_port> are idempotent.
          A => "POSTROUTING",
          o => "eth0",
          j => "MASQUERADE";
- 
+
+   # The 'iptables' function also accepts long options,
+   # however, options with dashes need to be quoted
+   iptables table => "nat",
+         accept          => "POSTROUTING",
+         "out-interface" => "eth0",
+         jump            => "MASQUERADE";
+
+   # Version of IP can be specified in the first argument
+   # of any function: -4 or -6 (defaults to -4)
+   iptables_clear -6;
+
+   open_port -6, [22, 80];
+   close_port -6, "all";
+   redirect_port -6, 80 => 10080;
+   default_state_rule -6;
+
+   iptables -6, "flush";
+   iptables -6,
+         t     => "filter",
+         A     => "INPUT",
+         i     => "eth0",
+         m     => "state",
+         state => "RELATED,ESTABLISHED",
+         j     => "ACCEPT";
  };
 
 =head1 EXPORTED FUNCTIONS
-
-=over 4
 
 =cut
 
@@ -61,6 +83,7 @@ package Rex::Commands::Iptables;
 
 use strict;
 use warnings;
+use version;
 
 # VERSION
 
@@ -74,6 +97,7 @@ use vars qw(@EXPORT);
 use Rex::Commands::Sysctl;
 use Rex::Commands::Run;
 use Rex::Commands::Gather;
+use Rex::Helper::Run;
 
 use Rex::Logger;
 
@@ -83,7 +107,7 @@ use Rex::Logger;
 
 sub iptables;
 
-=item open_port($port, $option)
+=head2 open_port($port, $option)
 
 Open a port for inbound connections.
 
@@ -104,12 +128,13 @@ Open a port for inbound connections.
 =cut
 
 sub open_port {
-
-  my ( $port, $option ) = @_;
+  my @params     = @_;
+  my $ip_version = _get_ip_version( \@params );
+  my ( $port, $option ) = @params;
 
   my %option_h;
   if ( ref $option ne "HASH" ) {
-    ( $port, %option_h ) = @_;
+    ( $port, %option_h ) = @params;
 
     if ( exists $option_h{only_if} ) {
       run( $option_h{only_if} );
@@ -121,11 +146,12 @@ sub open_port {
     delete $option_h{only_if};
     $option = {%option_h};
   }
-  _open_or_close_port( "i", "I", "INPUT", "ACCEPT", $port, $option );
+  _open_or_close_port( $ip_version, "i", "I", "INPUT", "ACCEPT", $port,
+    $option );
 
 }
 
-=item close_port($port, $option)
+=head2 close_port($port, $option)
 
 Close a port for inbound connections.
 
@@ -140,12 +166,13 @@ Close a port for inbound connections.
 =cut
 
 sub close_port {
-
-  my ( $port, $option ) = @_;
+  my @params     = @_;
+  my $ip_version = _get_ip_version( \@params );
+  my ( $port, $option ) = @params;
 
   my %option_h;
   if ( ref $option ne "HASH" ) {
-    ( $port, %option_h ) = @_;
+    ( $port, %option_h ) = @params;
 
     if ( exists $option_h{only_if} ) {
       run( $option_h{only_if} );
@@ -158,13 +185,13 @@ sub close_port {
     $option = {%option_h};
   }
 
-  _open_or_close_port( "i", "A", "INPUT", "DROP", $port, $option );
+  _open_or_close_port( $ip_version, "i", "A", "INPUT", "DROP", $port, $option );
 
 }
 
-=item redirect_port($in_port, $option)
+=head2 redirect_port($in_port, $option)
 
-Redirect $in_port to an other local port.
+Redirect $in_port to another local port.
 
  task "redirects", sub {
    redirect_port 80 => 10080;
@@ -177,8 +204,17 @@ Redirect $in_port to an other local port.
 =cut
 
 sub redirect_port {
-  my ( $in_port, $option ) = @_;
+  my @params     = @_;
+  my $ip_version = _get_ip_version( \@params );
+  if ( $ip_version == -6 ) {
+    my $iptables_version = _iptables_version($ip_version);
+    if ( $iptables_version < v1.4.18 ) {
+      Rex::Logger::info("iptables < v1.4.18 doesn't support NAT for IPv6");
+      die("iptables < v1.4.18 doesn't support NAT for IPv6");
+    }
+  }
 
+  my ( $in_port, $option ) = @params;
   my @opts;
 
   push( @opts, "t", "nat" );
@@ -228,34 +264,57 @@ sub redirect_port {
     );
   }
 
-  iptables @opts;
+  iptables $ip_version, @opts;
 }
 
-=item iptables(@params)
+=head2 iptables(@params)
 
 Write standard iptable comands.
+
+Note that there is a short form for the iptables C<--flush> option; when you
+pass the option of C<-F|"flush"> as the only argument, the command
+C<iptables -F> is run on the connected host.  With the two argument form of
+C<flush> shown in the examples below, the second argument is table you want to
+flush.
 
  task "firewall", sub {
    iptables t => "nat", A => "POSTROUTING", o => "eth0", j => "MASQUERADE";
    iptables t => "filter", i => "eth0", m => "state", state => "RELATED,ESTABLISHED", j => "ACCEPT";
  
+   # automatically flushes all tables; equivalent to 'iptables -F'
    iptables "flush";
    iptables -F;
+
+   # flush only the "filter" table
    iptables flush => "filter";
    iptables -F => "filter";
+ };
+
+ # Note: options with dashes "-" need to be quoted to escape them from Perl
+ task "long_form_firewall", sub {
+   iptables table => "nat",
+        append          => "POSTROUTING",
+        "out-interface" => "eth0",
+        jump            => "MASQUERADE";
+   iptables table => "filter",
+        "in-interface" => "eth0",
+        match          => "state",
+        state          => "RELATED,ESTABLISHED",
+        jump           => "ACCEPT";
  };
 
 =cut
 
 sub iptables {
-  my (@params) = @_;
+  my @params   = @_;
+  my $iptables = _get_executable( \@params );
 
   if ( $params[0] eq "flush" || $params[0] eq "-flush" || $params[0] eq "-F" ) {
     if ( $params[1] ) {
-      run "iptables -F -t $params[1]";
+      run "$iptables -F -t $params[1]";
     }
     else {
-      run "iptables -F";
+      run "$iptables -F";
     }
 
     return;
@@ -279,31 +338,28 @@ sub iptables {
     }
   }
 
-  if ( can_run("iptables") ) {
-    run "iptables $cmd";
+  my $output = run "$iptables $cmd";
 
-    if ( $? != 0 ) {
-      Rex::Logger::info( "Error setting iptable rule: $cmd", "warn" );
-      die("Error setting iptable rule: $cmd");
-    }
-  }
-  else {
-    Rex::Logger::info("IPTables not found.");
-    die("IPTables not found.");
+  if ( $? != 0 ) {
+    Rex::Logger::info( "Error setting iptable rule: $cmd", "warn" );
+    die("Error setting iptable rule: $cmd; command output: $output");
   }
 }
 
-=item is_nat_gateway
+=head2 is_nat_gateway
 
 This function creates a NAT gateway for the device the default route points to.
 
  task "make-gateway", sub {
    is_nat_gateway;
+   is_nat_gateway -6;
  };
 
 =cut
 
 sub is_nat_gateway {
+  my @params     = @_;
+  my $ip_version = _get_ip_version( \@params );
 
   Rex::Logger::debug("Changing this system to a nat gateway.");
 
@@ -311,13 +367,25 @@ sub is_nat_gateway {
 
     my @iptables_option = ();
 
-    my ($default_line) = run "/sbin/ip r |grep ^default";
+    my ($default_line) = run "/sbin/ip $ip_version r |grep ^default";
     my ($dev)          = ( $default_line =~ m/dev ([a-z0-9]+)/i );
     Rex::Logger::debug("Default GW Device is $dev");
 
-    sysctl "net.ipv4.ip_forward" => 1;
-    iptables t => "nat", A => "POSTROUTING", o => $dev, j => "MASQUERADE";
-
+    if ( $ip_version == -6 ) {
+      die "NAT for IPv6 supported by iptables >= v1.4.18"
+        if _iptables_version($ip_version) < v1.4.18;
+      sysctl "net.ipv6.conf.all.forwarding",     1;
+      sysctl "net.ipv6.conf.default.forwarding", 1;
+      iptables $ip_version,
+        t => "nat",
+        A => "POSTROUTING",
+        o => $dev,
+        j => "MASQUERADE";
+    }
+    else {
+      sysctl "net.ipv4.ip_forward" => 1;
+      iptables t => "nat", A => "POSTROUTING", o => $dev, j => "MASQUERADE";
+    }
   }
   else {
 
@@ -327,7 +395,7 @@ sub is_nat_gateway {
 
 }
 
-=item default_state_rule(%option)
+=head2 default_state_rule(%option)
 
 Set the default state rules for the given device.
 
@@ -338,7 +406,9 @@ Set the default state rules for the given device.
 =cut
 
 sub default_state_rule {
-  my (%option) = @_;
+  my @params     = @_;
+  my $ip_version = _get_ip_version( \@params );
+  my (%option)   = @params;
 
   unless ( exists $option{"dev"} ) {
     my $net_info = network_interfaces();
@@ -351,7 +421,7 @@ sub default_state_rule {
     return;
   }
 
-  iptables
+  iptables $ip_version,
     t     => "filter",
     A     => "INPUT",
     i     => $option{"dev"},
@@ -360,24 +430,27 @@ sub default_state_rule {
     j     => "ACCEPT";
 }
 
-=item iptables_list
+=head2 iptables_list
 
 List all iptables rules.
 
  task "list-iptables", sub {
    print Dumper iptables_list;
+   print Dumper iptables_list -6;
  };
 
 =cut
 
 sub iptables_list {
-  my @lines = run "/sbin/iptables-save";
+  my @params   = @_;
+  my $iptables = _get_executable( \@params );
+  my @lines    = run "/sbin/$iptables-save";
   _iptables_list(@lines);
 }
 
 sub _iptables_list {
   my ( %tables, $ret );
-  my (@lines) = @_;
+  my @lines = @_;
 
   my ($current_table);
   for my $line (@lines) {
@@ -411,7 +484,7 @@ sub _iptables_list {
   return $ret;
 }
 
-=item iptables_clear
+=head2 iptables_clear
 
 Remove all iptables rules.
 
@@ -422,20 +495,29 @@ Remove all iptables rules.
 =cut
 
 sub iptables_clear {
+  my @params     = @_;
+  my $ip_version = _get_ip_version( \@params );
 
   for my $table (qw/nat mangle filter/) {
-    iptables t => $table, F => '';
-    iptables t => $table, X => '';
+
+    # NAT for IPv6 supported by iptables >= v1.4.18
+    next
+      if $table eq "nat"
+      && $ip_version == -6
+      && _iptables_version($ip_version) < v1.4.18;
+
+    iptables $ip_version, t => $table, F => '';
+    iptables $ip_version, t => $table, X => '';
   }
 
   for my $p (qw/INPUT FORWARD OUTPUT/) {
-    iptables P => $p, ["ACCEPT"];
+    iptables $ip_version, P => $p, ["ACCEPT"];
   }
 
 }
 
 sub _open_or_close_port {
-  my ( $dev_type, $push_type, $chain, $jump, $port, $option ) = @_;
+  my ( $ip_version, $dev_type, $push_type, $chain, $jump, $port, $option ) = @_;
 
   my @opts;
 
@@ -455,8 +537,8 @@ sub _open_or_close_port {
       my $new_option = $option;
       $new_option->{"dev"} = $dev;
 
-      _open_or_close_port( $dev_type, $push_type, $chain, $jump, $port,
-        $new_option );
+      _open_or_close_port( $ip_version, $dev_type, $push_type, $chain, $jump,
+        $port, $new_option );
     }
 
     return;
@@ -477,8 +559,8 @@ sub _open_or_close_port {
   else {
     if ( ref($port) eq "ARRAY" ) {
       for my $port_num ( @{$port} ) {
-        _open_or_close_port( $dev_type, $push_type, $chain, $jump, $port_num,
-          $option );
+        _open_or_close_port( $ip_version, $dev_type, $push_type, $chain, $jump,
+          $port_num, $option );
       }
       return;
     }
@@ -487,17 +569,17 @@ sub _open_or_close_port {
     push( @opts, "j",     $jump );
   }
 
-  if ( _rule_exists(@opts) ) {
-    Rex::Logger::debug("IPTables rule already exists. skipping...");
+  if ( _rule_exists( $ip_version, @opts ) ) {
+    Rex::Logger::debug("iptables rule already exists. skipping...");
     return;
   }
 
-  iptables @opts;
+  iptables $ip_version, @opts;
 
 }
 
 sub _rule_exists {
-  my (@check_rule) = @_;
+  my ( $ip_version, @check_rule ) = @_;
 
   shift @check_rule;
   shift @check_rule;
@@ -505,7 +587,7 @@ sub _rule_exists {
 
   my $str_check_rule = join( " ", "A", @check_rule );
 
-  my $current_tables = iptables_list();
+  my $current_tables = iptables_list($ip_version);
   if ( exists $current_tables->{filter} ) {
     for my $rule ( @{ $current_tables->{filter} } ) {
       my $str_rule = join( " ", @{$rule} );
@@ -521,8 +603,48 @@ sub _rule_exists {
   return 0;
 }
 
-=back
+sub _get_ip_version {
+  my ($params) = @_;
+  if ( defined $params->[0] && !ref $params->[0] ) {
+    if ( $params->[0] eq "-4" || $params->[0] eq "-6" ) {
+      return shift @$params;
+    }
+  }
+  return -4;
+}
 
-=cut
+sub _get_executable {
+  my ($params)       = @_;
+  my $ip_version     = _get_ip_version($params);
+  my $cache          = Rex::get_cache();
+  my $cache_key_name = "iptables.$ip_version.executable";
+  return $cache->get($cache_key_name) if $cache->valid($cache_key_name);
+
+  my $binary = $ip_version == -6 ? "ip6tables" : "iptables";
+  my $executable = can_run($binary);
+  die "Can't find $binary in PATH" if $executable eq '';
+  $cache->set( $cache_key_name, $executable );
+  return $executable;
+}
+
+sub _iptables_version {
+  my @params         = @_;
+  my $ip_version     = _get_ip_version( \@params );
+  my $cache          = Rex::get_cache();
+  my $cache_key_name = "iptables.$ip_version.version";
+  return version->parse( $cache->get($cache_key_name) )
+    if $cache->valid($cache_key_name);
+
+  my $iptables = _get_executable( \@params );
+  my $out      = i_run("$iptables -V");
+  if ( $out =~ /v([.\d]+)/ms ) {
+    my $version = version->parse($1);
+    $cache->set( $cache_key_name, "$version" );
+    return $version;
+  }
+  else {
+    die "Can't parse `$iptables -V' output `$out'";
+  }
+}
 
 1;

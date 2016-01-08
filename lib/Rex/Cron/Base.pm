@@ -39,7 +39,7 @@ sub list_jobs {
   my ($self) = @_;
   my @jobs = @{ $self->{cron} };
   my @ret =
-    map { $_ = { line => $_->{line}, %{ $_->{cron} } } }
+    map { { line => $_->{line}, %{ $_->{cron} } } }
     grep { $_->{type} eq "job" } @jobs;
 }
 
@@ -148,7 +148,7 @@ sub write_cron {
 
   my $rnd_file = get_tmp_file;
 
-  my @lines = map { $_ = $_->{line} } @{ $self->{cron} };
+  my @lines = map { $_->{line} } @{ $self->{cron} };
 
   my $fh = file_write $rnd_file;
   $fh->write( join( "\n", @lines ) . "\n" );
@@ -159,13 +159,24 @@ sub write_cron {
 
 sub activate_user_cron {
   my ( $self, $file, $user ) = @_;
-  i_run "crontab -u $user $file";
+  $user = undef if $user eq &_whoami;
+
+  my $command = 'crontab';
+  $command .= " -u $user" if defined $user;
+
+  i_run "$command $file";
   unlink $file;
 }
 
 sub read_user_cron {
   my ( $self, $user ) = @_;
-  my @lines = i_run "crontab -u $user -l";
+  $user = undef if $user eq &_whoami;
+
+  my $command = 'crontab -l';
+  $command .= " -u $user" if defined $user;
+  $command .= ' 2> /dev/null';
+
+  my @lines = i_run $command;
   $self->parse_cron(@lines);
 }
 
@@ -260,6 +271,10 @@ sub _create_defaults {
   $config{"command"} ||= "false";
 
   return %config;
+}
+
+sub _whoami {
+  return i_run q(perl -e 'print scalar getpwuid($<)');
 }
 
 1;

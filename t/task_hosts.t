@@ -1,17 +1,8 @@
 package main;
 
-use Test::More;
+use Test::More tests => 2;
 
-use_ok 'Rex';
-use_ok 'Rex::Config';
-use_ok 'Rex::Group';
-use_ok 'Rex::Task';
-use_ok 'Rex::TaskList';
-use_ok 'Rex::Commands';
-use_ok 'Rex::Commands::Run';
-use_ok 'Rex::Commands::Upload';
-
-Rex::Commands->import();
+use Rex::Commands;
 
 desc("Test");
 task(
@@ -50,5 +41,3 @@ is_deeply(
   [ "test2", "test3" ],
   "tasks has two elements: 'test2' and 'test3'"
 );
-
-done_testing();

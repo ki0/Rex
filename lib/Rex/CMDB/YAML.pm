@@ -17,11 +17,51 @@ use Rex::Commands -no => [qw/get/];
 use Rex::Logger;
 use YAML;
 use Data::Dumper;
+use Hash::Merge qw/merge/;
+
+require Rex::Commands::File;
 
 sub new {
   my $that  = shift;
   my $proto = ref($that) || $that;
   my $self  = {@_};
+
+  $self->{merger} = Hash::Merge->new();
+
+  if ( !defined $self->{merge_behavior} ) {
+    $self->{merger}->specify_behavior(
+      {
+        SCALAR => {
+          SCALAR => sub { $_[0] },
+          ARRAY  => sub { $_[0] },
+          HASH   => sub { $_[0] },
+        },
+        ARRAY => {
+          SCALAR => sub { $_[0] },
+          ARRAY  => sub { $_[0] },
+          HASH   => sub { $_[0] },
+        },
+        HASH => {
+          SCALAR => sub { $_[0] },
+          ARRAY  => sub { $_[0] },
+          HASH   => sub { Hash::Merge::_merge_hashes( $_[0], $_[1] ) },
+        },
+      },
+      'REX_DEFAULT',
+    ); # first found value always wins
+
+    $self->{merger}->set_behavior('REX_DEFAULT');
+  }
+  else {
+    if ( ref $self->{merge_behavior} eq 'HASH' ) {
+      $self->{merger}
+        ->specify_behavior( $self->{merge_behavior}, 'USER_DEFINED' );
+      $self->{merger}->set_behavior('USER_DEFINED');
+    }
+    else {
+      $self->{merger}->set_behavior( $self->{merge_behavior} );
+    }
+  }
 
   bless( $self, $proto );
 
@@ -47,7 +87,7 @@ sub get {
     );
   }
   elsif ( ref $self->{path} eq "CODE" ) {
-    @files = $self->{path}->();
+    @files = $self->{path}->( $self, $item, $server );
   }
   elsif ( ref $self->{path} eq "ARRAY" ) {
     @files = @{ $self->{path} };
@@ -58,33 +98,36 @@ sub get {
   my $all = {};
   Rex::Logger::debug( Dumper( \@files ) );
 
+  # configuration variables
+  my $config_values = Rex::Config->get_all;
+  my %template_vars;
+  for my $key ( keys %{$config_values} ) {
+    if ( !exists $template_vars{$key} ) {
+      $template_vars{$key} = $config_values->{$key};
+    }
+  }
+  $template_vars{environment} = Rex::Commands::environment();
+
   for my $file (@files) {
     Rex::Logger::debug("CMDB - Opening $file");
     if ( -f $file ) {
 
-      #my $content = eval { local ( @ARGV, $/ ) = ($file); <>; };
-      #$content .= "\n";    # for safety
+      my $content = eval { local ( @ARGV, $/ ) = ($file); <>; };
+      my $t = Rex::Config->get_template_function();
+      $content .= "\n"; # for safety
+      $content = $t->( $content, \%template_vars );
 
-      my $ref = YAML::LoadFile($file);
+      my $ref = YAML::Load($content);
 
-      if ( !$item ) {
-        for my $key ( keys %{$ref} ) {
-          if ( exists $all->{$key} ) {
-            next;
-          }
-          $all->{$key} = $ref->{$key};
-        }
-      }
-
-      if ( defined $item && exists $ref->{$item} ) {
-        Rex::Logger::debug("CMDB - Found $item in $file");
-        return $ref->{$item};
-      }
+      $all = $self->{merger}->merge( $all, $ref );
     }
   }
 
   if ( !$item ) {
     return $all;
+  }
+  else {
+    return $all->{$item};
   }
 
   Rex::Logger::debug("CMDB - no item ($item) found");

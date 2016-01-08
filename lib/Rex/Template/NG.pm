@@ -18,15 +18,40 @@ sub new {
 
   bless( $self, $proto );
 
-  $self->{__output__}   = "";
-  $self->{__code__}     = "";
-  $self->{__raw_data__} = "";
+  $self->_init();
 
   return $self;
 }
 
+sub _init {
+  my ($self) = @_;
+
+  $self->{__output__}   = "";
+  $self->{__code__}     = "";
+  $self->{__raw_data__} = "";
+}
+
 sub parse {
-  my ( $self, $c, %vars ) = @_;
+  my $self = shift;
+  my $c    = shift;
+  my %in_vars;
+
+  $self->_init();
+
+  if ( ref $_[0] eq "HASH" ) {
+    %in_vars = %{ +shift };
+  }
+  else {
+    %in_vars = @_;
+  }
+
+  my %vars;
+
+  for my $key ( keys %in_vars ) {
+    my $new_key = $key;
+    $new_key =~ s/[^a-zA-Z0-9_]/_/gms;
+    $vars{$new_key} = $in_vars{$key};
+  }
 
   # some backward compat. to old template module.
   $c =~ s/\$::([a-zA-Z0-9_]+)/_replace_var($1, \%vars)/egms;
@@ -152,7 +177,7 @@ sub parse {
 sub __out {
   my ( $self, $str ) = @_;
 
-  $self->{__output__} .= $str;
+  $self->{__output__} .= $str || "";
 }
 
 sub _parse {
@@ -251,10 +276,14 @@ sub _parse {
     }
 
     # catch ' %>'
-    if ( $code_block
-      && ( $prev_char eq " " || $prev_char eq "\n" || $prev_char eq "-" )
+    if (
+      $code_block
+      && ( ( $code_block_output || $prev_char eq " " )
+        || $prev_char eq "\n"
+        || $prev_char eq "-" )
       && $curr_char eq "%"
-      && $next_char eq ">" )
+      && $next_char eq ">"
+      )
     {
       $code_block = 0;
 
@@ -310,7 +339,7 @@ sub _parse {
       next;
     }
 
-    $parsed .= $curr_char;
+    $parsed .= $curr_char =~ m/[{}]/ ? "\\$curr_char" : $curr_char;
 
   }
 

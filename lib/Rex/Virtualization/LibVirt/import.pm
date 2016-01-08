@@ -34,9 +34,11 @@ sub execute {
   my $cwd = i_run "pwd";
   chomp $cwd;
 
-  my $dir  = dirname $opt{file};
-  my $file = "storage/" . basename $opt{file};
-  mkdir "./storage";
+  my $dir = dirname $opt{file};
+  my ( undef, undef, $suffix ) = fileparse( $opt{file}, qr{\.[^.]*} );
+  $opt{storage_path} = $cwd . '/storage' unless ( $opt{storage_path} );
+  my $file = $opt{storage_path} . '/' . $dom . $suffix;
+  i_run "mkdir -p $opt{storage_path}";
 
   my $format = "qcow2";
 
@@ -51,9 +53,8 @@ sub execute {
 
     my @vmdk = grep { m/\.vmdk$/ } i_run "tar -C $dir -vxf $opt{file}";
 
-    Rex::Logger::debug(
-      "converting $cwd/tmp/$vmdk[0] -> $cwd/storage/$file.qcow2");
-    i_run "qemu-img convert -O qcow2 $cwd/tmp/$vmdk[0] $cwd/$file.qcow2";
+    Rex::Logger::debug("converting $cwd/tmp/$vmdk[0] -> $file.qcow2");
+    i_run "qemu-img convert -O qcow2 $cwd/tmp/$vmdk[0] $file.qcow2";
 
     if ( $? != 0 ) {
       Rex::Logger::info(
@@ -106,13 +107,15 @@ sub execute {
     $dom,
     storage => [
       {
-        file        => "$cwd/$file",
+        file        => "$file",
         dev         => "vda",
         driver_type => $format,
       },
     ],
     network        => \@network,
     serial_devices => \@serial_devices,
+    memory         => $opt{memory},
+    cpus           => $opt{cpus},
   );
 
   if ( exists $opt{__forward_port} ) {

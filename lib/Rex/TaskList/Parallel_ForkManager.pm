@@ -27,95 +27,41 @@ BEGIN {
 
 use base qw(Rex::TaskList::Base);
 
-my @PROCESS_LIST;
-
-sub new {
-  my $that  = shift;
-  my $proto = ref($that) || $that;
-  my $self  = $proto->SUPER::new(@_);
-
-  bless( $self, $proto );
-
-  return $self;
-}
-
 sub run {
-  my ( $self, $task_name, %option ) = @_;
-  my $task = $self->get_task($task_name);
+  my ( $self, $task, %options ) = @_;
 
-  $option{params} ||= { Rex::Args->get };
-
-  my @all_server = @{ $task->server };
-
-  my $fm = Parallel::ForkManager->new( $task->parallelism
-      || Rex::Config->get_parallelism );
+  my $fm = Parallel::ForkManager->new( $self->get_thread_count($task) );
+  my $all_servers = $task->server;
 
   $fm->run_on_finish(
     sub {
       my ( $pid, $exit_code ) = @_;
       Rex::Logger::debug("Fork exited: $pid -> $exit_code");
-      push @PROCESS_LIST, $exit_code;
     }
   );
 
-  for my $server (@all_server) {
+  for my $server (@$all_servers) {
+    my $child_coderef = $self->build_child_coderef($task, $server, %options);
 
-    my $forked_sub = sub {
+    if ( $self->{IN_TRANSACTION} ) {
 
-      Rex::Logger::init();
-
-      # create a single task object for the run on $server
-
-      Rex::Logger::info("Running task $task_name on $server");
-      my $run_task = Rex::Task->new( %{ $task->get_data } );
-
-      $run_task->run(
-        $server,
-        in_transaction => $self->{IN_TRANSACTION},
-        params         => $option{params}
-      );
-
-      # destroy cached os info
-      Rex::Logger::debug("Destroying all cached os information");
-
-      Rex::Logger::shutdown();
-
-    };
-
-    # add the worker (forked_sub) to the fork queue
-    unless ( $self->{IN_TRANSACTION} ) {
-
-      # not inside a transaction, so lets fork happyly...
-      $fm->start and next;
-      eval {
-        $forked_sub->();
-        1;
-      } or do {
-
-        # exit with error
-        $? = 255 if !$?; # unknown error
-        exit $?;
-      };
-      $fm->finish;
+      # Inside a transaction -- no forking and no chance to get zombies.
+      # This only happens if someone calls do_task() from inside a transaction.
+      $child_coderef->();
     }
     else {
-# inside a transaction, no little small funny kids, ... and no chance to get zombies :(
-      &$forked_sub();
+      # Not inside a transaction, so lets fork
+      $fm->start and next;
+      $child_coderef->();
+      $fm->finish;
     }
-
   }
 
   Rex::Logger::debug("Waiting for children to finish");
   my $ret = $fm->wait_all_children;
-
   Rex::reconnect_lost_connections();
 
   return $ret;
-}
-
-sub get_exit_codes {
-  my ($self) = @_;
-  return @PROCESS_LIST;
 }
 
 1;

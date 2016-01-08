@@ -12,7 +12,7 @@ use warnings;
 # VERSION
 
 use Rex::Interface::Exec;
-require File::Spec::Unix;
+use Rex::Helper::File::Spec;
 
 sub new {
   my $that  = shift;
@@ -89,12 +89,19 @@ sub chown {
   }
 
   my $exec = Rex::Interface::Exec->create;
-  $exec->exec("chown $recursive $user $file");
 
-  if ( $? == 0 ) { return 1; }
+  if ( $exec->can_run( ['chown'] ) ) {
+    $exec->exec("chown $recursive $user $file");
 
-  die("Error running chown $recursive $user $file")
-    if ( Rex::Config->get_autodie );
+    if ( $? == 0 ) { return 1; }
+
+    die("Error running chown $recursive $user $file")
+      if ( Rex::Config->get_autodie );
+  }
+  else {
+    Rex::Logger::debug("Can't find `chown`.");
+    return 1; # fake success for windows
+  }
 }
 
 sub chgrp {
@@ -108,12 +115,19 @@ sub chgrp {
   }
 
   my $exec = Rex::Interface::Exec->create;
-  $exec->exec("chgrp $recursive $group $file");
 
-  if ( $? == 0 ) { return 1; }
+  if ( $exec->can_run( ['chgrp'] ) ) {
+    $exec->exec("chgrp $recursive $group $file");
 
-  die("Error running chgrp $recursive $group $file")
-    if ( Rex::Config->get_autodie );
+    if ( $? == 0 ) { return 1; }
+
+    die("Error running chgrp $recursive $group $file")
+      if ( Rex::Config->get_autodie );
+  }
+  else {
+    Rex::Logger::debug("Can't find `chgrp`.");
+    return 1; # fake success for windows
+  }
 }
 
 sub chmod {
@@ -127,12 +141,19 @@ sub chmod {
   }
 
   my $exec = Rex::Interface::Exec->create;
-  $exec->exec("chmod $recursive $mode $file");
 
-  if ( $? == 0 ) { return 1; }
+  if ( $exec->can_run( ['chmod'] ) ) {
+    $exec->exec("chmod $recursive $mode $file");
 
-  die("Error running chmod $recursive $mode $file")
-    if ( Rex::Config->get_autodie );
+    if ( $? == 0 ) { return 1; }
+
+    die("Error running chmod $recursive $mode $file")
+      if ( Rex::Config->get_autodie );
+  }
+  else {
+    Rex::Logger::debug("Can't find `chmod`.");
+    return 1; # fake success for windows
+  }
 }
 
 sub cp {
@@ -155,12 +176,13 @@ sub _normalize_path {
   for my $d (@dirs) {
     my @t;
     if (Rex::is_ssh) {
-      @t = File::Spec::Unix->splitdir($d);
+      @t = Rex::Helper::File::Spec->splitdir($d);
     }
     else {
-      @t = File::Spec->splitdir($d);
+      @t = Rex::Helper::File::Spec->splitdir($d);
     }
-    push( @ret, File::Spec::Unix->catfile( map { $self->_quotepath($_) } @t ) );
+    push( @ret,
+      Rex::Helper::File::Spec->catfile( map { $self->_quotepath($_) } @t ) );
   }
 
   #  for (@dirs) {

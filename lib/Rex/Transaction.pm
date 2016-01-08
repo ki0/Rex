@@ -15,21 +15,19 @@ With this module you can define transactions and rollback scenarios on failure.
 =head1 SYNOPSIS
 
  task "do-something", "server01", sub {
-  on_rollback {
-    rmdir "/tmp/mydata";
-  };
+   transaction {
+     on_rollback {
+       rmdir "/tmp/mydata";
+     };
  
-  transaction {
-    mkdir "/tmp/mydata";
-    upload "files/myapp.tar.gz", "/tmp/mydata";
-    run "cd /tmp/mydata; tar xzf myapp.tar.gz";
-    if($? != 0) { die("Error extracting myapp.tar.gz"); }
-  };
+     mkdir "/tmp/mydata";
+     upload "files/myapp.tar.gz", "/tmp/mydata";
+     run "cd /tmp/mydata; tar xzf myapp.tar.gz";
+     if($? != 0) { die("Error extracting myapp.tar.gz"); }
+   };
  };
 
 =head1 EXPORTED FUNCTIONS
-
-=over 4
 
 =cut
 
@@ -51,7 +49,7 @@ use Data::Dumper;
 
 @EXPORT = qw(transaction on_rollback);
 
-=item transaction($codeRef)
+=head2 transaction($codeRef)
 
 Start a transaction for $codeRef. If $codeRef dies it will rollback the transaction.
 
@@ -86,6 +84,7 @@ sub transaction(&) {
   eval { &$code(); };
 
   if ($@) {
+    my $err = $@;
     Rex::Logger::info("Transaction failed. Rolling back.");
 
     $ret = 0;
@@ -95,11 +94,13 @@ sub transaction(&) {
       Rex::push_connection( $rollback_code->{"connection"} );
 
       # run the rollback code
-      &{ $rollback_code->{"code"} }();
+      &{ $rollback_code->{"code"} }($err);
 
       # and pop it away
       Rex::pop_connection();
     }
+
+    Rex::TaskList->create()->set_in_transaction(0);
 
     die("Transaction failed. Rollback done.");
   }
@@ -110,7 +111,7 @@ sub transaction(&) {
 
 }
 
-=item on_rollback($codeRef)
+=head2 on_rollback($codeRef)
 
 This code will be executed if one step in the transaction fails.
 
@@ -129,9 +130,5 @@ sub on_rollback(&) {
     }
   );
 }
-
-=back
-
-=cut
 
 1;

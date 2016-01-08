@@ -1,7 +1,6 @@
-use Test::More;
-use Data::Dumper;
+use Test::More tests => 30;
 
-use_ok 'Rex::Inventory::DMIDecode';
+use Rex::Inventory::DMIDecode;
 
 my @lines = eval { local (@ARGV) = ("t/dmi.linux.out"); <>; };
 my $dmi = Rex::Inventory::DMIDecode->new( lines => \@lines );
@@ -176,5 +175,3 @@ is(
   "Parallels Virtual Platform",
   "system information product name"
 );
-
-done_testing();

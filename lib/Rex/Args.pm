@@ -11,16 +11,51 @@ use warnings;
 
 # VERSION
 
-use vars qw(%task_opts %rex_opts);
+use vars qw(%rex_opts);
 use Rex::Logger;
 use Data::Dumper;
 
-our $KEY_VAL             = 1;
-our $REMOVE_TASK_OPTIONS = 0;
-our $CLEANUP             = 1;
+our $CLEANUP = 1;
 
-sub import {
-  my ( $class, %args ) = @_;
+sub args_spec {
+  return (
+    C => {},
+    c => {},
+    q => {},
+    Q => {},
+    F => {},
+    T => {},
+    h => {},
+    v => {},
+    d => {},
+    s => {},
+    m => {},
+    y => {},
+    w => {},
+    S => { type => "string" },
+    E => { type => "string" },
+    o => { type => "string" },
+    f => { type => "string" },
+    M => { type => "string" },
+    b => { type => "string" },
+    e => { type => "string" },
+    H => { type => "string" },
+    u => { type => "string" },
+    p => { type => "string" },
+    P => { type => "string" },
+    K => { type => "string" },
+    G => { type => "string" },
+    g => { type => "string" },
+    z => { type => "string" },
+    O => { type => "string" },
+    t => { type => "string" },
+  );
+}
+
+sub parse_rex_opts {
+  my ($class) = @_;
+
+  my %args = $class->args_spec;
 
   #### clean up @ARGV
   my $runner = 0;
@@ -107,29 +142,6 @@ sub import {
       last;
     }
   }
-
-  #### parse task options
-
-  @params = @ARGV[ 1 .. $#ARGV ];
-
-  my $counter = 1;
-  for my $p (@params) {
-    my ( $key, $val ) = split( /=/, $p, 2 );
-
-    if ( defined $val ) {
-      if ($REMOVE_TASK_OPTIONS) {
-        splice( @ARGV, $counter, 1 );
-      }
-    }
-
-    $key =~ s/^--//;
-
-    if ( defined $val ) { $task_opts{$key} = $val; next; }
-    $task_opts{$key} = $KEY_VAL;
-
-    $counter++;
-  }
-
 }
 
 sub getopts { return %rex_opts; }
@@ -141,6 +153,11 @@ sub is_opt {
   }
 }
 
-sub get { return %task_opts; }
+sub get {
+  my ($class) = @_;
+
+  my $task = Rex::Commands::task();
+  return $task->get_opts();
+}
 
 1;

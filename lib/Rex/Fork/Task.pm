@@ -12,13 +12,6 @@ use POSIX ":sys_wait_h";
 
 # VERSION
 
-BEGIN {
-
-  use Rex::Shared::Var;
-  share qw(@PROCESS_LIST);
-
-}
-
 sub new {
   my $that  = shift;
   my $proto = ref($that) || $that;
@@ -33,33 +26,14 @@ sub new {
 
 sub start {
   my ($self) = @_;
+
   $self->{'running'} = 1;
-  if ( $self->{pid} = fork ) { return $self->{pid}; }
-  else {
-    $self->{chld} = 1;
-    my $func = $self->{task};
+  $self->{pid} = fork;
 
-    # only allow this if no parallelism is given.
-    # with parallelism active it doesn't make sense.
-    if ( $Rex::WITH_EXIT_STATUS && Rex::Config->get_parallelism == 1 ) {
-      eval {
-        &$func($self);
-        1;
-      } or do {
-        push( @PROCESS_LIST, $? || 1 );
-        $self->{'running'} = 0;
-        die($@);
-      };
-
-      $self->{'running'} = 0;
-      push( @PROCESS_LIST, 0 );
-      exit();
-    }
-    else {
-      &$func($self);
-      $self->{'running'} = 0;
-      exit();
-    }
+  if ( !$self->{pid} ) {
+    $self->{coderef}->($self);
+    $self->{'running'} = 0;
+    exit();
   }
 }
 

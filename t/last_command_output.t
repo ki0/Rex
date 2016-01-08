@@ -1,12 +1,9 @@
-use Test::More tests => 5;
+use Test::More tests => 3;
 
-use_ok 'Rex::Commands';
-use_ok 'Rex::Commands::Run';
+use Rex::Commands;
+use Rex::Commands::Run;
 
 $::QUIET = 1;
-
-Rex::Commands->import;
-Rex::Commands::Run->import;
 
 my $command = ( $^O =~ /MSWin/ ) ? 'dir' : 'ls -l';
 run($command);
@@ -19,4 +16,4 @@ run($command);
 
 $s = last_command_output();
 unlike( $s, qr/ChangeLog/ms );
-like( $s, qr/base\.t/ms );
+like( $s, qr/auth\.t/ms );

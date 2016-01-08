@@ -12,7 +12,20 @@ Rex - Remote Execution
 
 =head1 DESCRIPTION
 
-(R)?ex is a small script to ease the execution of remote commands. You can write small tasks in a file named I<Rexfile>.
+Rex is a command line tool which executes commands on remote servers.  Define
+tasks in Perl and execute them on remote servers or groups of servers.
+
+Rex can be used to:
+
+=over 4
+
+=item * Deploy web applications to servers sequentially or in parallel.
+
+=item * Automate common tasks.
+
+=item * Provision servers using Rex's builtin tools.
+
+=back
 
 You can find examples and howtos on L<http://rexify.org/>
 
@@ -32,24 +45,27 @@ You can find examples and howtos on L<http://rexify.org/>
 
 =head1 SYNOPSIS
 
- use strict;
- use warnings;
+    # In a Rexfile:
+    use Rex -feature => [qw/1.3/];
+   
+    user "root";
+    password "ch4ngem3";
+   
+    desc "Show Unix version";
+    task "uname", sub {
+       say run "uname -a";
+    };
 
- user "root";
- password "ch4ngem3";
+    1;
+   
+    # On the command line:
+    bash# rex -H server[01..10] uname
 
- desc "Show Unix version";
- task "uname", sub {
-    say run "uname -a";
- };
-
- bash# rex -H "server[01..10]" uname
+See L<rex|https://metacpan.org/pod/distribution/Rex/bin/rex> for more information about how to use rex on the command line.
 
 See L<Rex::Commands> for a list of all commands you can use.
 
 =head1 CLASS METHODS
-
-=over 4
 
 =cut
 
@@ -59,6 +75,11 @@ use strict;
 use warnings;
 
 # VERSION
+
+# development version if this variable is not set
+if ( !$Rex::VERSION ) {
+  $Rex::VERSION = "9999.99.99";
+}
 
 BEGIN {
   use Rex::Logger;
@@ -223,7 +244,7 @@ sub modified_caller {
   }
 }
 
-=item get_current_connection
+=head2 get_current_connection
 
 This function is deprecated since 0.28! See Rex::Commands::connection.
 
@@ -267,7 +288,7 @@ sub get_current_connection_object {
   return Rex::get_current_connection()->{conn};
 }
 
-=item is_ssh
+=head2 is_ssh
 
 Returns 1 if the current connection is a ssh connection. 0 if not.
 
@@ -284,7 +305,7 @@ sub is_ssh {
   return 0;
 }
 
-=item is_local
+=head2 is_local
 
 Returns 1 if the current connection is local. Otherwise 0.
 
@@ -301,20 +322,26 @@ sub is_local {
   return 0;
 }
 
-=item is_sudo
+=head2 is_sudo
 
 Returns 1 if the current operation is executed within sudo.
 
 =cut
 
 sub is_sudo {
-  if ($GLOBAL_SUDO) { return 1; }
 
   if ( exists $CONNECTION_STACK[-1]->{server}->{auth}->{sudo}
     && $CONNECTION_STACK[-1]->{server}->{auth}->{sudo} == 1 )
   {
     return 1;
   }
+  elsif ( exists $CONNECTION_STACK[-1]->{server}->{auth}->{sudo}
+    && $CONNECTION_STACK[-1]->{server}->{auth}->{sudo} == 0 )
+  {
+    return 0;
+  }
+
+  if ($GLOBAL_SUDO) { return 1; }
 
   if ( $CONNECTION_STACK[-1] ) {
     return $CONNECTION_STACK[-1]->{conn}->get_current_use_sudo;
@@ -331,7 +358,7 @@ sub global_sudo {
   Rex::Config->set_use_cache(1);
 }
 
-=item get_sftp
+=head2 get_sftp
 
 Returns the sftp object for the current ssh connection.
 
@@ -353,7 +380,7 @@ sub get_cache {
   return Rex::Interface::Cache->create();
 }
 
-=item connect
+=head2 connect
 
 Use this function to create a connection if you use Rex as a library.
 
@@ -524,6 +551,11 @@ sub import {
     require Rex::Commands::User;
     Rex::Commands::User->import( register_in => $register_to );
 
+    require Rex::Helper::Rexfile::ParamLookup;
+    Rex::Helper::Rexfile::ParamLookup->import( register_in => $register_to );
+
+    require Rex::Resource::firewall;
+    Rex::Resource::firewall->import( register_in => $register_to );
   }
 
   if ( $what eq "-feature" || $what eq "feature" ) {
@@ -537,7 +569,10 @@ sub import {
 
       if ( $add =~ m/^(\d+\.\d+)$/ ) {
         my $vers = $1;
-        my ( $major, $minor, $patch ) = split( /\./, $VERSION );
+        my $_ver = $Rex::VERSION;
+        $_ver =~ s/_\d+$//; # remove rc info
+
+        my ( $major, $minor, $patch ) = split( /\./, $_ver );
         my ( $c_major, $c_minor ) = split( /\./, $vers );
 
         if ( ( $c_major > $major )
@@ -549,6 +584,18 @@ sub import {
           );
           exit 1;
         }
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 1.4 ) {
+        Rex::Logger::debug("Enabling task_chaining_cmdline_args feature");
+        Rex::Config->set_task_chaining_cmdline_args(1);
+        $found_feature = 1;
+      }
+
+      if ( $add =~ m/^\d+\.\d+$/ && $add >= 1.3 ) {
+        Rex::Logger::debug("Activating new template engine.");
+        Rex::Config->set_use_template_ng(1);
+        $found_feature = 1;
       }
 
       if ( $add =~ m/^\d+\.\d+$/ && $add >= 1.0 ) {
@@ -646,8 +693,14 @@ sub import {
       }
 
       if ( $add eq "template_ng" ) {
-        Rex::Logger::debug("Activating experimental new template engine.");
+        Rex::Logger::debug("Activating new template engine.");
         Rex::Config->set_use_template_ng(1);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "no_template_ng" ) {
+        Rex::Logger::debug("Deactivating new template engine.");
+        Rex::Config->set_use_template_ng(0);
         $found_feature = 1;
       }
 
@@ -768,6 +821,18 @@ sub import {
         $found_feature = 1;
       }
 
+      if ( $add eq "no_task_chaining_cmdline_args" ) {
+        Rex::Logger::debug("Disabling task_chaining_cmdline_args feature");
+        Rex::Config->set_task_chaining_cmdline_args(0);
+        $found_feature = 1;
+      }
+
+      if ( $add eq "task_chaining_cmdline_args" ) {
+        Rex::Logger::debug("Enabling task_chaining_cmdline_args feature");
+        Rex::Config->set_task_chaining_cmdline_args(1);
+        $found_feature = 1;
+      }
+
       if ( $found_feature == 0 ) {
         Rex::Logger::info(
           "You tried to load a feature ($add) that doesn't exists in your Rex version. Please update.",
@@ -792,8 +857,6 @@ sub import {
   # we are always strict
   strict->import;
 }
-
-=back
 
 =head1 CONTRIBUTORS
 

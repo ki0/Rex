@@ -28,8 +28,6 @@ All these functions are not idempotent.
 
 =head1 EXPORTED FUNCTIONS
 
-=over 4
-
 =cut
 
 package Rex::Commands::LVM;
@@ -46,8 +44,9 @@ use vars qw(@EXPORT);
 @EXPORT = qw(pvs vgs lvs pvcreate vgcreate lvcreate vgextend);
 
 use Rex::Commands::Run;
+use Rex::Commands::Mkfs;
 
-=item pvs
+=head2 pvs
 
 Get Information for all your physical volumes.
 
@@ -97,7 +96,7 @@ sub pvs {
 
 }
 
-=item vgs
+=head2 vgs
 
 Get Information for all your volume groups.
 
@@ -154,7 +153,7 @@ sub vgs {
 
 }
 
-=item lvs
+=head2 lvs
 
 Get Information for all your logical volumes.
 
@@ -247,19 +246,7 @@ sub lvcreate {
 
   my $lv_path = $option{onvg} . "/" . $lvname;
 
-  if ( exists $option{fstype} ) {
-    if ( can_run("mkfs.$option{fstype}") ) {
-      Rex::Logger::info("Creating filesystem $option{fstype} on /dev/$lv_path");
-      run "mkfs.$option{fstype} /dev/$lv_path";
-    }
-    elsif ( $option{fstype} eq "swap" ) {
-      Rex::Logger::info("Creating swap space on /dev/$lv_path");
-      run "mkswap -f /dev/$lv_path";
-    }
-    else {
-      die("Can't format partition with $option{fstype}");
-    }
-  }
+  mkfs "$lv_path";
 
   if ( $? != 0 ) {
     die("Error creating lv.\n$s\n");
@@ -279,9 +266,5 @@ sub vgextend {
 
   return 1;
 }
-
-=back
-
-=cut
 
 1;
